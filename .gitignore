@@ -1,0 +1,29 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+.env
+.venv
+env/
+venv/
+libs/
+
+# IDE / Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Antigravity / Claude
+.claude/
+.agents/
+
+# Local data & embeddings
+data/graph.nt
+data/graph.ttl
+data/embeddings/*.npy
+data/embeddings/*.del
+data/images/

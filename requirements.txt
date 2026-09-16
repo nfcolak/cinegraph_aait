@@ -1,0 +1,9 @@
+nltk
+editdistance
+transformers
+scikit-learn
+rdflib
+numpy
+pandas
+SPARQLWrapper
+torch
