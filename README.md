@@ -54,9 +54,10 @@ It operates seamlessly either via the **Speakeasy** chat platform or directly th
 ├── interactive_agent.py # Interactive CLI session for testing queries
 ├── main.py              # Single-query CLI runner
 ├── movie_info.py        # Movie detail inspector utility
-├── test_backdrop.py     # Tests for scene/backdrop detection
-├── test_multimedia.py   # Tests for visual intent & multimedia resolution
-└── test_robustness.py   # Stress-testing rate limiters and error handlers
+└── tests/               # Standalone checks (no datasets or credentials required)
+    ├── test_backdrop.py   # Scene/backdrop pattern checks
+    ├── test_multimedia.py # Visual intent pattern checks
+    └── test_robustness.py # Rate limiter, concurrency and timeout simulations
 ```
 
 ---
@@ -102,6 +103,19 @@ python agent.py
 ```
 
 ---
+
+## Local checks
+
+Run from the repository root:
+
+```bash
+python3 -B tests/test_backdrop.py
+python3 -B tests/test_multimedia.py
+python3 -B tests/test_robustness.py
+```
+
+These scripts check standalone pattern copies and simulated robustness mechanisms;
+they do not exercise the live agent or replace end-to-end tests with the graph dataset.
 
 ## 👥 Authors
 - **Necati Furkan Çolak**
