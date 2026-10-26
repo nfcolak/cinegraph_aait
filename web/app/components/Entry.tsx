@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { filmHref, formatLatency, personHref, ROUTE_INFO, type EntityCard, type Reply } from "@/lib/api";
+import { askHref, filmHref, formatLatency, personHref, ROUTE_INFO, type EntityCard, type Reply } from "@/lib/api";
 import { FilmTile } from "./Catalog";
 
 /* eslint-disable @next/next/no-img-element -- TMDB images are remote and already sized by the CDN path */
@@ -90,7 +90,7 @@ function GraphPath({ reply }: { reply: Reply }) {
   if (!reply.ok || !reply.relation || !reply.subject?.label) return null;
   const n = Math.max(reply.count, reply.objects.length);
   const objects =
-    n > 3 ? `${n} titles` : reply.objects.length > 0 ? reply.objects.join(", ") : reply.answer.match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? "?";
+    n > 3 ? `${n} ${reply.inverse ? "titles" : "entries"}` : reply.objects.length > 0 ? reply.objects.join(", ") : reply.answer.match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? "?";
   return (
     <p className="path" aria-label="Path through the knowledge graph">
       <span className="path-node">
@@ -102,6 +102,22 @@ function GraphPath({ reply }: { reply: Reply }) {
         {reply.property && <code>{reply.property}</code>}
       </span>
       <span className="path-node">{objects}</span>
+    </p>
+  );
+}
+
+/** One quiet line: how the question was read. */
+function ReadAs({ reading }: { reading: NonNullable<Reply["reading"]> }) {
+  if (!reading.relation || !reading.subject) return null;
+  const kind = reading.subject_kind && reading.subject_kind !== "film" ? ` (${reading.subject_kind})` : "";
+  const via = reading.via_count > 0 ? `, through ${reading.via_count} ${reading.via_count === 1 ? "film" : "films"}` : "";
+  const more = reading.parts.length > 1 ? `, ${reading.parts.length} questions` : "";
+  return (
+    <p className="read-as">
+      Read as: {reading.relation} of {reading.subject}
+      {kind}
+      {via}
+      {more}
     </p>
   );
 }
@@ -148,6 +164,20 @@ export function Entry({ reply }: { reply: Reply }) {
       )}
 
       {reply.hint && <p className="caveat">{reply.hint}</p>}
+
+      {reply.reading && <ReadAs reading={reply.reading} />}
+
+      {reply.alternatives.length > 0 && (
+        <p className="alternatives">
+          <span>Other entries named {reply.reading?.subject ?? reply.alternatives[0].label}:</span>
+          {reply.alternatives.map((alt) => (
+            <Link key={alt.qid} href={askHref(alt.ask)}>
+              {alt.year ? `${alt.label} (${alt.year})` : alt.label}
+              {alt.kind && alt.kind !== "film" ? `, ${alt.kind}` : ""}
+            </Link>
+          ))}
+        </p>
+      )}
 
       {!reply.ok && !reply.hint && (
         <p className="caveat">

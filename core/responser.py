@@ -13,6 +13,8 @@ from core.data import build_label_maps, WD, load_ratings, load_image_map
 from core.entity import extract_title, resolve_entity
 from core.relation import parse_relation, resolve_property_uri_from_local
 from core.query import ONE_QID_ONE_RELATION, ONE_LABEL_ONE_RELATION
+from core.intent import parse_intent, USE_THRESHOLD
+from core.linker import get_linker, normalize, STOP
 from core.recommender import (
     is_recommendation_question,
     extract_movie_titles,
@@ -57,9 +59,45 @@ NL_TEMPLATES = {
         "forward": "The movie is from {answers}.",
     },
     "publication date": {
-        "forward": "The movie was released on {answers}..",
+        "forward": "The movie was released on {answers}.",
     },
 }
+
+# Sentences the intent path uses for relations without a NL_TEMPLATES entry
+INTENT_FORWARD = {
+    "cast member": "The cast of {title_phrase} includes {answers}.",
+    "producer": "{title_phrase} was produced by {answers}.",
+    "production company": "{title_phrase} was produced by {answers}.",
+    "distributed by": "{title_phrase} was distributed by {answers}.",
+    "cinematographer": "The cinematographer of {title_phrase} was {answers}.",
+    "original language": "The original language of {title_phrase} is {answers}.",
+}
+INTENT_INVERSE = {
+    "cast member": "Movies with {who} include {answers}.",
+    "producer": "Movies produced by {who} include {answers}.",
+    "production company": "Movies produced by {who} include {answers}.",
+    "distributed by": "Movies distributed by {who} include {answers}.",
+    "cinematographer": "Movies shot by {who} include {answers}.",
+}
+
+# Genre word (Intent.genre) -> QID, same table as the old inverse path
+GENRE_QIDS = {
+    'biographical': 'Q645928', 'biography': 'Q645928', 'action': 'Q188473',
+    'comedy': 'Q157443', 'drama': 'Q130232', 'horror': 'Q200092', 'thriller': 'Q182015',
+    'romance': 'Q861243', 'romantic': 'Q861243', 'sci-fi': 'Q471839', 'fantasy': 'Q157394',
+    'documentary': 'Q93204', 'animated': 'Q202866', 'musical': 'Q2743', 'western': 'Q172980',
+    'crime': 'Q959790', 'mystery': 'Q1200678',
+}
+
+# --- Intent path settings ---
+FACT_KINDS = {"film", "character", "series"}      # subjects of a fact question
+FILMS_OF_KINDS = {"person", "company"}            # subjects of a films_of question
+VIA_FILMS_KINDS = {"character", "series"}         # answered through their linked films
+MIN_SPAN_COVERAGE = 0.6   # a span match must cover this share of the mention's tokens
+MAX_VIA_VALUES = 6        # values listed for a non-film subject
+MAX_FILMS_LISTED = 10     # films named in a films_of answer
+MAX_ALTERNATIVES = 5
+LINK_LIMIT = 10
 
 # --- Multimedia patterns (from respo1) ---
 
@@ -841,6 +879,265 @@ class Responser:
         formatted_answer = self._format_natural_answer(rel_label, uniq, title, inverse_query=inverse_query)
         return formatted_answer, entity_found, None
 
+    # ----- intent path -----
+
+    @staticmethod
+    def _covers(mention, cand) -> bool:
+        """A span match counts only when the label holds most of the mention's words."""
+        if cand.match != "span":
+            return True
+        toks = [t for t in normalize(mention).split() if t not in STOP]
+        if not toks:
+            return False
+        label_toks = set(normalize(cand.label).split())
+        return sum(t in label_toks for t in toks) / len(toks) >= MIN_SPAN_COVERAGE
+
+    def _link_subject(self, linker, intent, want, message):
+        """Linked candidates of a wanted kind, best first."""
+        if not intent.mention:
+            return []
+        cands = linker.link(intent.mention, want=want, year=intent.year, question=message, limit=LINK_LIMIT)
+        kept = [c for c in cands if c.kind in want and self._covers(intent.mention, c)]
+        if not kept:
+            # spans from the question can hide a typo match of the mention: retry on the mention alone
+            cands = linker.link(intent.mention, want=want, year=intent.year, limit=LINK_LIMIT)
+            kept = [c for c in cands if c.kind in want and self._covers(intent.mention, c)]
+        return kept
+
+    @staticmethod
+    def _alternatives(linker, best, cands):
+        """Other entities with the same name as best: same-name candidates of other kinds plus the linker's."""
+        key = normalize(best.label)
+        seen, out = {best.uri}, []
+        for c in list(cands) + linker.alternatives(best, limit=MAX_ALTERNATIVES):
+            if c.uri not in seen and normalize(c.label) == key:
+                seen.add(c.uri)
+                out.append(c)
+        return out[:MAX_ALTERNATIVES]
+
+    @staticmethod
+    def _named_values(graph, ent_to_lbl, subject, prop_uri):
+        """(uri or None, label) of every named value of subject's property."""
+        out = []
+        for o in graph.objects(rdflib.URIRef(str(subject)), prop_uri):
+            if isinstance(o, rdflib.URIRef):
+                lbl = ent_to_lbl.get(o)
+                if lbl:
+                    out.append((str(o), lbl))
+            else:
+                s = str(o).strip()
+                if s:
+                    out.append((None, s))
+        return out
+
+    def _fact_for_film(self, graph, ent_to_lbl, cand, prop_uri):
+        """Run the ONE_QID_ONE_RELATION template on a linked film. Returns (uris, labels, sparql)."""
+        sparql = ONE_QID_ONE_RELATION % (cand.qid, str(prop_uri))
+        try:
+            rows = list(graph.query(sparql))
+        except Exception:
+            rows = []
+        uris, labels = [], []
+        for row in rows:
+            obj, lab = row[0], (row[1] if len(row) > 1 else None)
+            if isinstance(obj, rdflib.URIRef):
+                if lab is None or not str(lab).strip():
+                    lab = ent_to_lbl.get(obj)  # labels without a language tag
+                if lab is None or not str(lab).strip():
+                    continue  # unnamed value: not an answer
+                if str(obj) not in uris:
+                    uris.append(str(obj))
+                text = str(lab).strip()
+            else:
+                text = str(obj).strip()
+            if text and text not in labels:
+                labels.append(text)
+        return uris, labels, sparql
+
+    def _fact_via_films(self, graph, ent_to_lbl, films, prop_uri):
+        """Values of one property over several films, most frequent first: [(uri, label, n_films)]."""
+        agg = {}
+        for f in films:
+            seen = set()
+            for uri, lbl in self._named_values(graph, ent_to_lbl, f, prop_uri):
+                if lbl in seen:
+                    continue
+                seen.add(lbl)
+                item = agg.setdefault(lbl, [uri, lbl, 0, len(agg)])
+                item[2] += 1
+        return [(u, l, n) for u, l, n, _ in sorted(agg.values(), key=lambda v: (-v[2], v[3]))]
+
+    @staticmethod
+    def _via_text(label, rel_label, n_films, values):
+        """Answer text of design.md 1.4 for a non-film subject."""
+        shown = values[:MAX_VIA_VALUES]
+        if n_films == 1:
+            parts = [l for _, l, _ in shown]
+            head = f"{label} is not a film itself; the graph links it to 1 film. The {rel_label} of that film: "
+        else:
+            parts = [f"{l} ({n} film{'s' if n != 1 else ''})" for _, l, n in shown]
+            head = f"{label} is not a film itself; the graph links it to {n_films} films. The {rel_label} of those films: "
+        more = len(values) - len(shown)
+        if more > 0:
+            return head + ", ".join(parts) + f", and {more} more."
+        return head + ", ".join(parts) + "."
+
+    def _forward_text(self, rel_label, labels, title):
+        if rel_label in INTENT_FORWARD:
+            return INTENT_FORWARD[rel_label].format(title_phrase=f'"{title}"', answers=" and ".join(labels))
+        return self._format_natural_answer(rel_label, labels, title)
+
+    @staticmethod
+    def _plural_form(intent, message) -> bool:
+        """'the Toy Story movies' / 'Harry Potter films': the user means the series or character."""
+        if not intent.mention or intent.quoted:
+            return False
+        return re.search(re.escape(intent.mention) + r"['’]?s?\s+(?:movies|films)\b", message, re.I) is not None
+
+    def _answer_fact(self, intent, graph, linker, ent_to_lbl, prop_uri, message, kinds=FACT_KINDS):
+        """One fact sub-question. Returns a result dict (answer may be None) or None when nothing linked."""
+        cands = []
+        if kinds is FACT_KINDS and self._plural_form(intent, message):
+            for k in ({"series"}, {"character"}):
+                cands = [c for c in self._link_subject(linker, intent, k, message) if c.match == "exact"]
+                if cands:
+                    break
+        if not cands:
+            cands = self._link_subject(linker, intent, kinds, message)
+        if not cands:
+            return None
+        best = cands[0]
+        res = {'relation': intent.relation, 'property_uri': str(prop_uri), 'entity_uri': best.uri,
+               'cand': best, 'kind': best.kind, 'via_films': [], 'alternatives': [],
+               'answer_uris': [], 'answer': None, 'sparql': None, 'inverse': False}
+        if best.kind == "film":
+            # films with the same name are tried in order when the best one has no value
+            key = normalize(best.label)
+            for c in [c for c in cands if c.kind == "film" and normalize(c.label) == key][:3]:
+                uris, labels, sparql = self._fact_for_film(graph, ent_to_lbl, c, prop_uri)
+                if c is best:
+                    res['sparql'] = sparql
+                if labels:
+                    best = c
+                    res.update(entity_uri=c.uri, cand=c, answer_uris=uris, sparql=sparql)
+                    alts = self._alternatives(linker, c, cands)
+                    res['alternatives'] = alts
+                    text = self._forward_text(intent.relation, labels, c.label)
+                    if alts:
+                        which = f"the {c.year} film" if c.year else f"the film {c.qid}"
+                        text = text.rstrip() + f" (There are {len(alts) + 1} entries called {c.label}; this is {which}.)"
+                    res['answer'] = text
+                    break
+            return res
+        # character or series: read the answer from the films linked to it
+        films = linker.films_of_entity(best.uri)
+        res['via_films'] = films
+        res['alternatives'] = self._alternatives(linker, best, cands)
+        if not films:
+            return res
+        values = self._fact_via_films(graph, ent_to_lbl, films, prop_uri)
+        if values:
+            res['answer_uris'] = [u for u, _, _ in values if u]
+            res['answer'] = self._via_text(best.label, intent.relation, len(films), values)
+        return res
+
+    def _answer_films_of(self, intent, graph, linker, prop_uri, message):
+        """One films_of sub-question: films whose property points at a person or company."""
+        cands = self._link_subject(linker, intent, FILMS_OF_KINDS, message)
+        if not cands:
+            return None
+        best = cands[0]
+        genre_qid = GENRE_QIDS.get(intent.genre) if intent.genre else None
+        genre_filter = f"?movie wdt:P136 wd:{genre_qid} ." if genre_qid else ""
+        sparql = f"""
+            PREFIX wd: <http://www.wikidata.org/entity/>
+            PREFIX wdt: <http://www.wikidata.org/prop/direct/>
+            SELECT DISTINCT ?movie WHERE {{
+                ?movie <{prop_uri}> <{best.uri}> .
+                ?movie wdt:P31 wd:Q11424 .
+                {genre_filter}
+            }}
+        """
+        try:
+            rows = list(graph.query(sparql))
+        except Exception:
+            rows = []
+        films = [r[0] for r in rows if isinstance(r[0], rdflib.URIRef) and linker.lbl.get(r[0])]
+        # best-known films first: more triples, then title
+        films.sort(key=lambda f: (-sum(1 for _ in graph.predicate_objects(f)), linker.lbl.get(f, "")))
+        res = {'relation': intent.relation, 'property_uri': str(prop_uri), 'entity_uri': best.uri,
+               'cand': best, 'kind': best.kind, 'via_films': [], 'alternatives': [],
+               'answer_uris': [str(f) for f in films], 'answer': None, 'sparql': sparql, 'inverse': True}
+        if films:
+            labels = [linker.lbl[f] for f in films[:MAX_FILMS_LISTED]]
+            if intent.relation in INTENT_INVERSE:
+                text = INTENT_INVERSE[intent.relation].format(who=best.label, answers=" and ".join(labels))
+            else:
+                text = self._format_natural_answer(intent.relation, labels, best.label, inverse_query=True)
+            more = len(films) - len(labels)
+            if more > 0:
+                text = text.rstrip(".") + f", and {more} more."
+            res['answer'] = text
+        return res
+
+    def _answer_intent(self, intent, graph, linker, ent_to_lbl, pred_lbl_to_uri, message):
+        """
+        Answer every sub-question of an intent through the linker.
+        Returns (text or None, first result or None); fills last_meta when text is returned.
+        """
+        memo = {}
+        results = []
+        for sub in [intent] + list(intent.parts):
+            if not sub.relation or not sub.mention or sub.kind not in ("fact", "films_of"):
+                results.append(None)
+                continue
+            prop_uri = resolve_property_uri_from_local(pred_lbl_to_uri, sub.relation)
+            if not prop_uri:
+                results.append(None)
+                continue
+            key = (sub.kind, sub.relation, sub.mention, sub.year, sub.genre)
+            if key not in memo:
+                if sub.kind == "fact":
+                    memo[key] = self._answer_fact(sub, graph, linker, ent_to_lbl, prop_uri, message)
+                else:
+                    memo[key] = self._answer_films_of(sub, graph, linker, prop_uri, message)
+                    if memo[key] is None:
+                        # "Ellen Ripley's movies": a character or series, read through its films
+                        memo[key] = self._answer_fact(sub, graph, linker, ent_to_lbl, prop_uri, message,
+                                                      kinds=VIA_FILMS_KINDS)
+            results.append(memo[key])
+
+        first = results[0]
+        answered = [r for r in results if r and r.get('answer')]
+        if not answered:
+            return None, first
+
+        sentences = []
+        for sub, r in zip([intent] + list(intent.parts), results):
+            if r and r.get('answer'):
+                sentences.append(r['answer'])
+            elif sub.relation:
+                about = r['cand'].label if r else (sub.mention or "it")
+                sentences.append(f"I could not find the {sub.relation} of {about}.")
+
+        lead = first if first and first.get('answer') else answered[0]
+        uris = []
+        for r in answered:
+            uris.extend(u for u in r['answer_uris'] if u not in uris)
+        self.last_meta.update(
+            entity_uri=lead['entity_uri'], relation=lead['relation'], property_uri=lead['property_uri'],
+            inverse=lead['inverse'], sparql=lead['sparql'], answer_uris=uris,
+            intent=intent.to_dict(), subject_kind=lead['kind'], via_films=list(lead['via_films']),
+            alternatives=[{'uri': c.uri, 'qid': c.qid, 'label': c.label, 'year': c.year, 'kind': c.kind}
+                          for c in lead['alternatives']],
+            parts=[{'relation': r['relation'] if r else s.relation,
+                    'entity_uri': r['entity_uri'] if r else None,
+                    'answer_uris': list(r['answer_uris']) if r and r.get('answer') else [],
+                    'answer': r.get('answer') if r else None}
+                   for s, r in zip([intent] + list(intent.parts), results)],
+        )
+        return " ".join(sentences), first
+
     # ----- embeddings -----
 
     def _get_entity_type(self, graph, entity_uri):
@@ -862,15 +1159,17 @@ class Responser:
             pass
         return None
 
-    def _generate_embedding_response(self, message, graph, ent_to_lbl, lbl_to_ent, pred_lbl_to_uri):
+    def _generate_embedding_response(self, message, graph, ent_to_lbl, lbl_to_ent, pred_lbl_to_uri,
+                                     head=None, rel_label=None):
         """
         Uses a simple TransE-style approach (h + r ≈ t) to predict the tail entity (t).
+        head: (uri, label) linked by the intent path; rel_label: its relation. Both optional.
         Returns (predicted_label, entity_type_qid, error)
         """
         if self.entity_embeds is None or self.relation_embeds is None:
             return None, None, "Embeddings data not loaded."
 
-        rel_label = parse_relation(message)
+        rel_label = rel_label or parse_relation(message)
         if not rel_label:
             return None, None, "Could not parse relation for embedding query."
 
@@ -878,15 +1177,18 @@ class Responser:
         if not prop_uri:
             return None, None, "Could not resolve property for embedding query."
 
-        title = extract_title(message) or message
-        entity_uris = resolve_entity(graph, lbl_to_ent, title)
-
         head_uri = None
         head_id = None
 
-        if entity_uris:
-            head_uri = str(entity_uris[0])
+        if head:
+            head_uri, title = str(head[0]), head[1]
             head_id = self.ent_uri_to_id.get(head_uri) if self.ent_uri_to_id else None
+        else:
+            title = extract_title(message) or message
+            entity_uris = resolve_entity(graph, lbl_to_ent, title)
+            if entity_uris:
+                head_uri = str(entity_uris[0])
+                head_id = self.ent_uri_to_id.get(head_uri) if self.ent_uri_to_id else None
 
         if head_id is None:
             return None, None, f"Entity '{title}' not found in embedding space."
@@ -912,11 +1214,12 @@ class Responser:
             return None, None, "Predicted entity not found in URI map."
 
         predicted_tail_uri_ref = rdflib.term.URIRef(predicted_tail_uri)
-        self.last_meta['answer_uris'] = [predicted_tail_uri]
 
         lbl = ent_to_lbl.get(predicted_tail_uri_ref) if ent_to_lbl else None
         if not lbl:
             lbl = _label_from_uri_strict(graph, predicted_tail_uri_ref)
+            if lbl and _QID_RE.match(lbl):
+                lbl = None  # the QID fallback is not a name
 
         if not lbl:
             qid = _qid_from_uri(predicted_tail_uri)
@@ -925,12 +1228,11 @@ class Responser:
 
         entity_type = self._get_entity_type(graph, predicted_tail_uri_ref)
 
-        if lbl:
-            return lbl, entity_type, None
-        else:
-            qid = _qid_from_uri(predicted_tail_uri)
-            fallback_name = qid if qid else predicted_tail_uri
-            return fallback_name, entity_type, None
+        if not lbl:
+            self.last_meta['answer_uris'] = []
+            return None, entity_type, "No answer: the prediction has no name in the graph."
+        self.last_meta['answer_uris'] = [predicted_tail_uri]
+        return lbl, entity_type, None
 
     # ----- recommendation -----
 
@@ -992,6 +1294,7 @@ class Responser:
             'route': None, 'entity_uri': None, 'relation': None, 'property_uri': None,
             'inverse': False, 'sparql': None, 'answer_uris': [], 'seeds': [],
             'recommendations': [], 'image': None, 'rewritten': None,
+            'intent': None, 'subject_kind': None, 'via_films': [], 'alternatives': [], 'parts': [],
         }
         original_message = message
 
@@ -1116,8 +1419,10 @@ class Responser:
             else:
                 return rec_error or "Could not generate recommendations."
 
-        # Factual: either normal or language-based branch
+        # Factual: either normal or language-based branch (intent first, see design.md section 2)
         self.last_meta['route'] = 'factual'
+        intent = None
+        linked = None  # first sub-question's result from the intent path
         if language_qid:
             print(f"[responser] Processing language-based query with QID: {language_qid}")
             factual_result, entity_found, factual_error = self._generate_language_based_response(
@@ -1125,20 +1430,49 @@ class Responser:
             )
         else:
             factual_start = time.time()
-            factual_result, entity_found, factual_error = self._generate_factual_response(
-                message, graph, lbl_to_ent, pred_lbl_to_uri
-            )
+            factual_result = None
+            # 1) intent + linker
+            intent = parse_intent(message)
+            if intent.kind in ("fact", "films_of") and intent.relation and intent.confidence >= USE_THRESHOLD:
+                linker = get_linker(graph, _ent_to_lbl)
+                factual_result, linked = self._answer_intent(
+                    intent, graph, linker, _ent_to_lbl, pred_lbl_to_uri, message)
+                if factual_result:
+                    print(f"[responser] Answered through intent: {intent.relation} / {intent.mention}")
+                    entity_found, factual_error = True, None
+            # 2) the old regex path
+            if not factual_result:
+                factual_result, entity_found, factual_error = self._generate_factual_response(
+                    message, graph, lbl_to_ent, pred_lbl_to_uri
+                )
+                entity_found = entity_found or bool(linked)
             factual_time = time.time() - factual_start
             print(f"[responser] Factual query took {factual_time:.3f}s")
 
         if factual_result:
+            self._fill_subject_kind(graph, _ent_to_lbl)
             total_time = time.time() - start_time
             print(f"[responser] Total response time: {total_time:.3f}s")
             return factual_result
 
+        # A character or series has no value of its own: no embedding guess for it
+        if linked and linked['kind'] in VIA_FILMS_KINDS:
+            self._note_linked(intent, linked)
+            total_time = time.time() - start_time
+            print(f"[responser] Total response time: {total_time:.3f}s")
+            label = linked['cand'].label
+            if linked['via_films']:
+                return (f"{label} is not a film itself; the graph links it to {len(linked['via_films'])} "
+                        f"film{'s' if len(linked['via_films']) != 1 else ''}, but none of them has a "
+                        f"{linked['relation']} in the graph.")
+            return f"{label} is not a film itself, and the graph links it to no film."
+
         embeddings_available = self.entity_embeds is not None and self.relation_embeds is not None
 
         if not embeddings_available:
+            if linked:
+                self._note_linked(intent, linked)
+            self._fill_subject_kind(graph, _ent_to_lbl)
             total_time = time.time() - start_time
             print(f"[responser] Total response time: {total_time:.3f}s")
             if entity_found:
@@ -1153,12 +1487,18 @@ class Responser:
             print("[responser] Entity not found in KG, trying embedding-based approach")
 
         self.last_meta['route'] = 'prediction'
+        # Head entity from the linker when it linked something; else the old title lookup
+        head = (linked['entity_uri'], linked['cand'].label) if linked else None
+        head_rel = linked['relation'] if linked else None
+        if linked:
+            self._note_linked(intent, linked)
         embedding_start = time.time()
         embedding_result, entity_type, embedding_error = self._generate_embedding_response(
-            message, graph, _ent_to_lbl, lbl_to_ent, pred_lbl_to_uri
+            message, graph, _ent_to_lbl, lbl_to_ent, pred_lbl_to_uri, head=head, rel_label=head_rel
         )
         embedding_time = time.time() - embedding_start
         print(f"[responser] Embedding query took {embedding_time:.3f}s")
+        self._fill_subject_kind(graph, _ent_to_lbl)
 
         if embedding_result:
             total_time = time.time() - start_time
@@ -1168,13 +1508,14 @@ class Responser:
                     else "because no factual answer was available in the knowledge graph.")
 
             entity_type_str = f" (type: {entity_type})" if entity_type else ""
-            rel_label = parse_relation(message)
+            rel_label = head_rel or parse_relation(message)
             final_answer = f"{embedding_result}{entity_type_str}"
 
             formatted = None
             if rel_label:
                 try:
-                    formatted = self._format_natural_answer(rel_label, [final_answer], extract_title(message))
+                    formatted = self._format_natural_answer(
+                        rel_label, [final_answer], head[1] if head else extract_title(message))
                 except KeyError:
                     formatted = None
             if formatted:
@@ -1187,3 +1528,23 @@ class Responser:
         if embedding_error:
             return embedding_error
         return "Could not generate an answer. Please rephrase your question in a simple way."
+
+    def _note_linked(self, intent, linked):
+        """Metadata of the subject the intent path linked, when it gave no answer itself."""
+        c = linked['cand']
+        self.last_meta.update(
+            entity_uri=c.uri, relation=linked['relation'], property_uri=linked['property_uri'],
+            inverse=linked['inverse'], intent=intent.to_dict() if intent else None,
+            subject_kind=c.kind, via_films=list(linked['via_films']), answer_uris=[],
+            alternatives=[{'uri': a.uri, 'qid': a.qid, 'label': a.label, 'year': a.year, 'kind': a.kind}
+                          for a in linked['alternatives']],
+        )
+
+    def _fill_subject_kind(self, graph, ent_to_lbl):
+        """subject_kind for answers that did not come through the intent path."""
+        uri = self.last_meta.get('entity_uri')
+        if uri and not self.last_meta.get('subject_kind'):
+            try:
+                self.last_meta['subject_kind'] = get_linker(graph, ent_to_lbl).kind_of(uri)
+            except Exception:
+                self.last_meta['subject_kind'] = None

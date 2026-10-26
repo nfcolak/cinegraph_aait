@@ -13,6 +13,24 @@ export interface EntityCard {
   rating?: number | null;
 }
 
+/** Another entity with the same name; `ask` is the question rewritten for it. */
+export interface Alternative {
+  qid: string;
+  label: string;
+  year: number | null;
+  kind: string | null;
+  ask: string;
+}
+
+/** How the agent read the question. */
+export interface Reading {
+  relation: string | null;
+  subject: string | null;
+  subject_kind: string | null;
+  via_count: number;
+  parts: { relation: string | null; answer: string | null }[];
+}
+
 export interface Reply {
   message: string;
   answer: string;
@@ -21,6 +39,8 @@ export interface Reply {
   hint: string | null;
   suggestions: FilmRow[];
   suggestions_title: string;
+  alternatives: Alternative[];
+  reading: Reading | null;
   route: Route;
   image: { url: string; kind: "poster" | "profile" | "scene"; label: string | null } | null;
   subject: EntityCard | null;

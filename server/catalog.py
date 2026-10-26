@@ -182,34 +182,6 @@ class Catalog:
         inner = [r for r in self.people if q in r["_key"] and r not in starts[:limit]] if len(starts) < limit else []
         return [self._public(r) for r in (starts + inner)[:limit]]
 
-    def linked_films(self, uri: Any) -> List[Dict[str, Any]]:
-        """Films joined to a non-film entity by any edge, either direction (character P674/P1441, series P179 ...)."""
-        ref = uri if isinstance(uri, rdflib.URIRef) else rdflib.URIRef(str(uri))
-        seen: Dict[str, Dict[str, Any]] = {}
-        for o in self.g.objects(ref, None):
-            row = self.film_by_qid.get(qid(o) or "")
-            if row:
-                seen[row["qid"]] = row
-        for s in self.g.subjects(None, ref):
-            row = self.film_by_qid.get(qid(s) or "")
-            if row:
-                seen[row["qid"]] = row
-        rows = sorted(seen.values(), key=lambda r: (r["year"] is None, r["year"] or "", r["_key"]))
-        return [self._public(r) for r in rows]
-
-    def fact_across(self, films: List[Dict[str, Any]], pid: str) -> List[Dict[str, Any]]:
-        """Values of one property over several films: [{label, qid, films: [titles]}], most frequent first."""
-        agg: Dict[str, Dict[str, Any]] = {}
-        for f in films:
-            ref = rdflib.URIRef(str(WD) + f["qid"])
-            for o in self.g.objects(ref, P(pid)):
-                label = self._label(o) if isinstance(o, rdflib.URIRef) else str(o)
-                if not label:
-                    continue
-                item = agg.setdefault(label, {"label": label, "qid": qid(o), "films": []})
-                item["films"].append(f["label"])
-        return sorted(agg.values(), key=lambda v: -len(v["films"]))
-
     def wall(self, n: int = 60) -> List[Dict[str, Any]]:
         """A random sample of well-known films with posters, different on every call."""
         pool = [r for r in self.films[:2500] if r["image"]]

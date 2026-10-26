@@ -35,6 +35,7 @@ from core.data import (
     load_image_map,
     load_ratings,
 )
+from core.linker import get_linker
 from core.recommender import recommend_movies
 from core.responser import Responser
 from server.catalog import Catalog
@@ -103,6 +104,7 @@ def warm() -> None:
         STATE.lbl_to_ent = lbl_to_ent
         STATE.triples = len(graph)
         STATE.catalog = Catalog(graph, ent_to_lbl, STATE.ratings)
+        get_linker(graph, ent_to_lbl)  # build the label index before the memory snapshot
         STATE.load_seconds = round(time.time() - t0, 1)
         STATE.responser = responser
         print(f"[api] ready: {STATE.triples} triples in {STATE.load_seconds}s")
@@ -232,39 +234,32 @@ def build_reply(message: str, answer: str, meta: Dict[str, Any], trace_raw: str,
         seed_cards = []
 
     objects = [l for l in (_label(u) for u in meta.get("answer_uris", [])) if l][:12]
-    text = _summarize_list(text, route, len(set(meta.get("answer_uris", []))))
+    if not meta.get("via_films"):  # via-film answers are already a short per-person tally
+        text = _summarize_list(text, route, len(set(meta.get("answer_uris", []))), len(meta.get("parts") or []),
+                               bool(meta.get("inverse")))
 
     # A prediction whose nearest entity has no label in the graph is only a bare Q-ID: not an answer.
     if route == "prediction" and ok and not objects and re.search(r"\bQ\d{2,}\b", text):
         ok = False
         text = "No answer. The embedding prediction landed on an entity with no name in the graph."
 
-    # When the matched entity is not a film (e.g. "Harry Potter" is the character), say so and offer films.
+    # Non-film subjects (character, series) are answered through their films by the agent; show those films.
     hint = None
     suggestions: List[Dict[str, Any]] = []
     suggestions_title = "Films with a similar title in the graph"
-    pid = (meta.get("property_uri") or "").rsplit("/", 1)[-1]
-    if subject and subject.get("type") not in ("film", None) and route in ("factual", "prediction"):
+    via = [u for u in (meta.get("via_films") or []) if u]
+    if via and STATE.catalog is not None:
+        by_qid = STATE.catalog.film_by_qid
+        rows = [by_qid[q] for q in (_qid(u) for u in via) if q in by_qid]
+        suggestions = [STATE.catalog._public(r) for r in rows[:12]]
+        label = (subject or {}).get("label") or (meta.get("intent") or {}).get("mention")
+        if label:
+            suggestions_title = f"Films linked to {label}"
+            hint = f"“{label}” is not a film in the graph; the answer is read from the films linked to it."
+    elif subject and subject.get("type") not in ("film", None) and route in ("factual", "prediction"):
         kind = "a person" if subject.get("type") == "person" else "not a film"
         if not meta.get("inverse"):
             hint = f"“{subject.get('label')}” matched {subject.get('qid')}, which is {kind} in the graph."
-        # A character or series has no director of its own, but the films it is linked to do: answer through them.
-        if subject.get("type") != "person" and not meta.get("inverse") and pid and STATE.catalog is not None:
-            linked = STATE.catalog.linked_films(meta["entity_uri"])
-            values = STATE.catalog.fact_across(linked, pid) if linked else []
-            if values:
-                ok, note, route = True, None, "factual"
-                rel = meta.get("relation") or "value"
-                shown = values[:6]
-                parts = [f"{v['label']} ({len(v['films'])} film{'s' if len(v['films']) > 1 else ''})" if len(linked) > 1 else v["label"] for v in shown]
-                more = f", and {len(values) - len(shown)} more" if len(values) > len(shown) else ""
-                text = (f"{subject.get('label')} is not a film itself; the graph links it to {len(linked)} film{'s' if len(linked) > 1 else ''}. "
-                        f"The {rel} of {'those films' if len(linked) > 1 else 'that film'}: {', '.join(parts)}{more}.")
-                objects = [v["label"] for v in values][:12]
-                cards = _cards([str(WD) + v["qid"] for v in values if v.get("qid")][:12])
-                hint = f"“{subject.get('label')}” matched {subject.get('qid')}; the answer is read from the films linked to it."
-                suggestions = linked[:12]
-                suggestions_title = f"Films linked to {subject.get('label')}"
     if not suggestions and (hint or not ok) and STATE.catalog is not None and route != "multimedia":
         probe = subject.get("label") if subject else _title_guess(message)
         if probe:
@@ -278,6 +273,8 @@ def build_reply(message: str, answer: str, meta: Dict[str, Any], trace_raw: str,
         "hint": hint,
         "suggestions": suggestions,
         "suggestions_title": suggestions_title,
+        "alternatives": _alternatives(message, meta),
+        "reading": _reading(meta, subject, len(via)),
         "route": route,
         "image": image,
         "subject": subject,
@@ -295,6 +292,40 @@ def build_reply(message: str, answer: str, meta: Dict[str, Any], trace_raw: str,
     }
 
 
+def _alternatives(message: str, meta: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Other entities with the same name; `ask` repeats the question with the title made specific."""
+    out = []
+    mention = ((meta.get("intent") or {}).get("mention") or "").strip()
+    for alt in (meta.get("alternatives") or [])[:5]:
+        label = alt.get("label")
+        if not label or not alt.get("qid"):
+            continue
+        year = alt.get("year")
+        full = f"{label} ({year})" if year else label
+        target = mention if mention and mention.lower() in message.lower() else label
+        pat = re.compile(re.escape(target), re.I)
+        ask = pat.sub(lambda _m: full, message, count=1) if pat.search(message) else f"{message.rstrip(' ?.')} ({full})?"
+        out.append({"qid": alt["qid"], "label": label, "year": year, "kind": alt.get("kind"), "ask": ask})
+    return out
+
+
+def _reading(meta: Dict[str, Any], subject: Optional[Dict[str, Any]], via_count: int) -> Optional[Dict[str, Any]]:
+    """How the question was read: relation, subject, subject kind, films used, further parts."""
+    intent = meta.get("intent")
+    if not intent:
+        return None
+    parts = []
+    for p in meta.get("parts") or []:
+        parts.append({"relation": p.get("relation"), "answer": p.get("answer")})
+    return {
+        "relation": meta.get("relation") or intent.get("relation"),
+        "subject": (subject or {}).get("label") or intent.get("mention"),
+        "subject_kind": meta.get("subject_kind"),
+        "via_count": via_count,
+        "parts": parts,
+    }
+
+
 def _title_guess(message: str) -> Optional[str]:
     """The words after 'of'/'directed'/etc., good enough to look up similarly named films."""
     m = re.search(r"(?:of|directed|direct|wrote|for|about)\s+(?:the\s+movie\s+|the\s+film\s+)?[\"'“]?([^?\"”]+)", message, re.I)
@@ -302,14 +333,21 @@ def _title_guess(message: str) -> Optional[str]:
     return guess if 2 <= len(guess) <= 60 else None
 
 
-def _summarize_list(text: str, route: str, n: int) -> str:
-    """Long 'A and B and C ...' answers repeat the film cards; keep the sentence head and the count."""
-    if route != "factual" or n <= 3:
+_LIST_HEAD = re.compile(r"^(.+?)\s+(?:include|includes|are|were)\s+\S")
+
+
+def _summarize_list(text: str, route: str, n: int, n_parts: int = 1, inverse: bool = False) -> str:
+    """Long 'A and B and C ...' answers repeat the cards; keep the sentence head and the count.
+
+    Answers to several sub-questions stay whole: collapsing them would drop every other part.
+    """
+    if route != "factual" or n <= 3 or n_parts > 1:
         return text
-    head = text.split(" include ", 1)[0] if " include " in text else ""
-    if head and len(head) < len(text):
-        return f"{head}: {n} titles in the graph."
-    return f"{n} titles in the graph."
+    noun = "titles" if inverse else "entries"
+    m = _LIST_HEAD.match(text)
+    if m:
+        return f"{m.group(1)}: {n} {noun} in the graph."
+    return f"{n} {noun} in the graph."
 
 
 def _tidy_sparql(q: Optional[str]) -> Optional[str]:

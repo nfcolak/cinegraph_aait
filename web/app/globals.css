@@ -1743,3 +1743,26 @@ code {
     scroll-behavior: auto !important;
   }
 }
+
+/* ---------- how the question was read, and other entries with the same name ---------- */
+
+.read-as {
+  margin-top: 10px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.alternatives {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 12px;
+  font-size: 0.9rem;
+  color: var(--ink-2);
+}
+
+.alternatives a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
