@@ -9,7 +9,7 @@
 
 **CineGraph** (evaluation codename: `SlateLeapingDeer`) is an intelligent conversational agent engineered to answer complex movie-related questions, infer missing knowledge, recommend films, and provide multimedia assets (posters, actor portraits, scenes).
 
-It operates seamlessly either via the **Speakeasy** chat platform or directly through local CLI interfaces.
+It runs as a web app (**live demo: https://cinegraph-agent.vercel.app**), on the **Speakeasy** chat platform, or through local CLI interfaces.
 
 ---
 
@@ -54,10 +54,15 @@ It operates seamlessly either via the **Speakeasy** chat platform or directly th
 ├── interactive_agent.py # Interactive CLI session for testing queries
 ├── main.py              # Single-query CLI runner
 ├── movie_info.py        # Movie detail inspector utility
+├── server/
+│   ├── api.py           # FastAPI wrapper: /api/chat, /api/health, film cards, image URLs
+│   └── modal_app.py     # Modal deployment (data volume + memory snapshot)
+├── web/                 # Next.js interface deployed on Vercel
 └── tests/               # Standalone checks (no datasets or credentials required)
     ├── test_backdrop.py   # Scene/backdrop pattern checks
     ├── test_multimedia.py # Visual intent pattern checks
-    └── test_robustness.py # Rate limiter, concurrency and timeout simulations
+    ├── test_robustness.py # Rate limiter, concurrency and timeout simulations
+    └── test_web_api.py    # Web API reply shaping (needs server/requirements.txt)
 ```
 
 ---
@@ -104,6 +109,34 @@ python agent.py
 
 ---
 
+## 🌐 Web interface
+
+```
+Browser ──> Vercel (Next.js, web/) ──/api/* rewrite──> Modal (FastAPI, server/) ──> Responser + graph
+```
+
+The web app sends each question to `/api/chat`. Next.js rewrites `/api/*` to the Python API, which
+runs the unchanged `Responser` and adds what the interface needs: the route that answered, the
+queried triple, film cards with posters (TMDB CDN paths from `images.json`), the SPARQL query and
+the agent log. The graph takes ~25 s to parse locally and ~90 s on Modal, so the Modal app takes a
+memory snapshot after loading; cold starts restore it in ~25 s.
+
+Run it locally (dataset in `data/`):
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r server/requirements.txt
+.venv/bin/uvicorn server.api:app --port 8000      # API, ready after ~25 s
+cd web && npm install && npm run dev               # http://localhost:3000, proxies /api to :8000
+```
+
+Deploy:
+
+```bash
+modal run server/modal_app.py::fetch_data          # once: dataset from Google Drive into a Modal volume
+modal deploy server/modal_app.py                   # API
+cd web && vercel deploy --prod                     # needs CINEGRAPH_API_URL=<Modal URL> in the Vercel project
+```
+
 ## Local checks
 
 Run from the repository root:
@@ -112,6 +145,7 @@ Run from the repository root:
 python3 -B tests/test_backdrop.py
 python3 -B tests/test_multimedia.py
 python3 -B tests/test_robustness.py
+python3 -B tests/test_web_api.py   # needs server/requirements.txt
 ```
 
 These scripts check standalone pattern copies and simulated robustness mechanisms;

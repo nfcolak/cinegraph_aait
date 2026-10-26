@@ -263,6 +263,9 @@ def _is_film_entity_check(graph, uri):
 
 _IMAGE_MAP = {}
 
+# Structured details of the last image lookup (read by the web API; requests are serialized there)
+_LAST_IMAGE_META = {}
+
 
 def is_multimedia_query(text: str) -> bool:
     """Detect if the question is asking for a picture/image."""
@@ -303,6 +306,8 @@ def _resolve_image_url(message, graph, lbl_to_ent):
     Handles 'backdrop' (scene) queries for both movies and actors.
     """
     global _IMAGE_MAP
+
+    _LAST_IMAGE_META.clear()
 
     if not _IMAGE_MAP:
         from core.data import load_image_map
@@ -479,6 +484,12 @@ def _resolve_image_url(message, graph, lbl_to_ent):
         return None, f"Could not identify the person or movie '{entity_name}'."
 
     nice_name = qid_to_label(graph, _qid_from_uri(resolved_uri)) or entity_name
+    _LAST_IMAGE_META.update(
+        entity_uri=str(resolved_uri),
+        entity_label=nice_name,
+        movie_uri=str(resolved_movie_uri) if resolved_movie_uri else None,
+        kind=final_map_type,
+    )
 
     # --- 4. Get IMDB ID and Lookup Image ---
     imdb_id = _qid_to_imdb_id(graph, resolved_uri)
@@ -501,6 +512,7 @@ def _resolve_image_url(message, graph, lbl_to_ent):
 
         if combo_image:
             print("[multimedia] Found cached actor+movie backdrop match.")
+            _LAST_IMAGE_META['kind'] = 'backdrop_cast'
             folder_id, filename_with_ext = os.path.split(combo_image)
             filename_hash, _ = os.path.splitext(filename_with_ext)
             return f"image:{folder_id}/{filename_hash}", None
@@ -518,6 +530,7 @@ def _resolve_image_url(message, graph, lbl_to_ent):
              image_path = _IMAGE_MAP.get(fallback, {}).get(imdb_id)
              if image_path:
                  print(f"[multimedia] Fallback: Found image in {fallback} map.")
+                 _LAST_IMAGE_META['kind'] = fallback
                  break
 
     if image_path:
@@ -549,6 +562,9 @@ class Responser:
 
         # Cache for label lookups to avoid repeated queries
         self._label_cache = {}
+
+        # Filled by generate_response(); see there for the keys
+        self.last_meta: dict = {'answer_uris': [], 'recommendations': [], 'seeds': []}
 
     # ----- factual -----
 
@@ -639,8 +655,11 @@ class Responser:
             return None, False, "Could not execute language-based query."
 
         answers = []
+        self.last_meta['sparql'] = sparql
         for row in rows:
             movie_uri = row[0]
+            if isinstance(movie_uri, rdflib.term.URIRef):
+                self.last_meta['answer_uris'].append(str(movie_uri))
             label_term = row[1] if len(row) > 1 else None
 
             if label_term:
@@ -751,6 +770,7 @@ class Responser:
 
             entity_found = True
             title = person_name
+            self.last_meta['entity_uri'] = str(person_uri)
         else:
             # Normal query: extract movie title
             title = extract_title(message) or message
@@ -759,12 +779,19 @@ class Responser:
 
             entity_found = bool(entity_uris)
             qid = _qid_from_uri(entity_uris[0]) if entity_uris else None
+            if entity_uris:
+                self.last_meta['entity_uri'] = str(entity_uris[0])
 
             if qid:
                 sparql = ONE_QID_ONE_RELATION % (qid, str(prop_uri))
             else:
                 safe_title = _escape_literal_for_query(title)
                 sparql = ONE_LABEL_ONE_RELATION % (safe_title, str(prop_uri))
+
+        self.last_meta['relation'] = rel_label
+        self.last_meta['property_uri'] = str(prop_uri)
+        self.last_meta['inverse'] = inverse_query
+        self.last_meta['sparql'] = sparql
 
         try:
             rows = list(graph.query(sparql))
@@ -774,6 +801,8 @@ class Responser:
         answers = []
         for row in rows:
             obj_term = row[0]
+            if isinstance(obj_term, rdflib.term.URIRef):
+                self.last_meta['answer_uris'].append(str(obj_term))
             label_term = row[1] if len(row) > 1 else None
 
             final_answer_part = None
@@ -867,6 +896,10 @@ class Responser:
         if rel_id is None:
             return None, None, "Relation not in embedding map."
 
+        self.last_meta['entity_uri'] = head_uri
+        self.last_meta['relation'] = rel_label
+        self.last_meta['property_uri'] = relation_uri
+
         h = self.entity_embeds[head_id]
         r = self.relation_embeds[rel_id]
 
@@ -879,6 +912,7 @@ class Responser:
             return None, None, "Predicted entity not found in URI map."
 
         predicted_tail_uri_ref = rdflib.term.URIRef(predicted_tail_uri)
+        self.last_meta['answer_uris'] = [predicted_tail_uri]
 
         lbl = ent_to_lbl.get(predicted_tail_uri_ref) if ent_to_lbl else None
         if not lbl:
@@ -933,6 +967,9 @@ class Responser:
             print(f"[recommender] No seed titles found, trying theme-based search")
             recommendations = recommend_by_theme(graph, message, top_k=2)
 
+        self.last_meta['seeds'] = list(seed_titles or [])
+        self.last_meta['recommendations'] = [title for title, _ in recommendations]
+
         if not recommendations:
             return None, "Could not find similar movies in the knowledge graph."
 
@@ -950,6 +987,13 @@ class Responser:
 
     def generate_response(self, message, graph, _WDT_ns=None, _WD_ns=None):
         start_time = time.time()
+        # Structured details of this answer for the web API (route, entities, SPARQL)
+        self.last_meta = {
+            'route': None, 'entity_uri': None, 'relation': None, 'property_uri': None,
+            'inverse': False, 'sparql': None, 'answer_uris': [], 'seeds': [],
+            'recommendations': [], 'image': None, 'rewritten': None,
+        }
+        original_message = message
 
         # Build/retrieve lookup maps ONCE
         map_start = time.time()
@@ -961,7 +1005,9 @@ class Responser:
         # 0) Multimedia first (posters, photos, etc.)
         if is_multimedia_query(message):
             print("[responser] Detected multimedia query")
+            self.last_meta['route'] = 'multimedia'
             image_result, image_error = _resolve_image_url(message, graph, lbl_to_ent)
+            self.last_meta['image'] = dict(_LAST_IMAGE_META) or None
             if image_result:
                 return image_result
             else:
@@ -1053,8 +1099,12 @@ class Responser:
             message = converted_query
 
         # Recommendation questions (real recs, not pseudo-factual)
+        if message != original_message:
+            self.last_meta['rewritten'] = message
+
         if is_recommendation_question(message):
             print("[responser] Detected recommendation question")
+            self.last_meta['route'] = 'recommendation'
             rec_result, rec_error = self._generate_recommendation_response(
                 message, graph, precomputed_titles=seed_titles_hint, language_filter=language_pref
             )
@@ -1067,6 +1117,7 @@ class Responser:
                 return rec_error or "Could not generate recommendations."
 
         # Factual: either normal or language-based branch
+        self.last_meta['route'] = 'factual'
         if language_qid:
             print(f"[responser] Processing language-based query with QID: {language_qid}")
             factual_result, entity_found, factual_error = self._generate_language_based_response(
@@ -1101,6 +1152,7 @@ class Responser:
         else:
             print("[responser] Entity not found in KG, trying embedding-based approach")
 
+        self.last_meta['route'] = 'prediction'
         embedding_start = time.time()
         embedding_result, entity_type, embedding_error = self._generate_embedding_response(
             message, graph, _ent_to_lbl, lbl_to_ent, pred_lbl_to_uri

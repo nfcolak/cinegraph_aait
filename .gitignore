@@ -27,3 +27,6 @@ data/graph.ttl
 data/embeddings/*.npy
 data/embeddings/*.del
 data/images/
+data/additional/
+data/ratings/
+data/image_features/
