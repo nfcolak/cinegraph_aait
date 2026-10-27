@@ -236,7 +236,7 @@ def build_reply(message: str, answer: str, meta: Dict[str, Any], trace_raw: str,
         seed_cards = []
 
     objects = [l for l in (_label(u) for u in meta.get("answer_uris", [])) if l][:12]
-    if not meta.get("via_films"):  # via-film answers are already a short per-person tally
+    if not meta.get("via_films") and not meta.get("compact"):  # these answers are already short
         text = _summarize_list(text, route, len(set(meta.get("answer_uris", []))), len(meta.get("parts") or []),
                                bool(meta.get("inverse")))
 

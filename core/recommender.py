@@ -1782,12 +1782,16 @@ def recommend_by_theme(graph, query_text: str, top_k: int = 5) -> List[Tuple[str
     target_companies = []
     target_genres = []
 
+    # whole words only: "dc" must not fire on "Radcliffe", "war" not on "award"
+    def _has(keyword: str) -> bool:
+        return re.search(r"(?<![a-z0-9])" + re.escape(keyword) + r"(?![a-z0-9])", query_lower) is not None
+
     for keyword, qids in company_keywords.items():
-        if keyword in query_lower:
+        if _has(keyword):
             target_companies.extend(qids)
 
     for keyword, genres in genre_keywords.items():
-        if keyword in query_lower:
+        if _has(keyword):
             for genre in genres:
                 if genre not in target_genres:
                     target_genres.append(genre)

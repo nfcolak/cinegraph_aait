@@ -15,6 +15,7 @@ from core.relation import parse_relation, resolve_property_uri_from_local
 from core.query import ONE_QID_ONE_RELATION, ONE_LABEL_ONE_RELATION
 from core.intent import parse_intent, USE_THRESHOLD
 from core.linker import get_linker, normalize, STOP
+from core.filmography import Filmography, role_of
 from core.recommender import (
     is_recommendation_question,
     extract_movie_titles,
@@ -99,6 +100,11 @@ MAX_VIA_VALUES = 6        # values listed for a non-film subject
 MAX_FILMS_LISTED = 10     # films named in a films_of answer
 MAX_ALTERNATIVES = 5
 LINK_LIMIT = 10
+
+# Wording that asks for films similar to something (recommendation) rather than films of someone
+_SIMILARITY_CUE = re.compile(
+    r"\b(?:like|similar|alike|lookalikes?|recommend\w*|suggest\w*|after\s+(?:watching|seeing)|"
+    r"(?:watch|see)\s+(?:next\s+)?after|in\s+the\s+mood|vibes?|fans?\s+of|enjoy\w*|lov\w+)\b", re.I)
 
 # --- Multimedia patterns (from respo1) ---
 
@@ -1055,7 +1061,6 @@ class Responser:
             PREFIX wdt: <http://www.wikidata.org/prop/direct/>
             SELECT DISTINCT ?movie WHERE {{
                 ?movie <{prop_uri}> <{best.uri}> .
-                ?movie wdt:P31 wd:Q11424 .
                 {genre_filter}
             }}
         """
@@ -1063,7 +1068,9 @@ class Responser:
             rows = list(graph.query(sparql))
         except Exception:
             rows = []
-        films = [r[0] for r in rows if isinstance(r[0], rdflib.URIRef) and linker.lbl.get(r[0])]
+        # any film class counts (animated films are often typed only as Q202866)
+        films = [r[0] for r in rows if isinstance(r[0], rdflib.URIRef) and linker.lbl.get(r[0])
+                 and linker.kind_of(r[0]) == "film"]
         # best-known films first: more triples, then title
         films.sort(key=lambda f: (-sum(1 for _ in graph.predicate_objects(f)), linker.lbl.get(f, "")))
         res = {'relation': intent.relation, 'property_uri': str(prop_uri), 'entity_uri': best.uri,
@@ -1434,7 +1441,15 @@ class Responser:
         if message != original_message:
             self.last_meta['rewritten'] = message
 
-        if is_recommendation_question(message):
+        # "List the movies of Daniel Radcliffe" / "Give me Tom Hanks movies" read like a request for
+        # films but name a person and no seed film: a filmography, not a recommendation
+        wants_recs = is_recommendation_question(message)
+        if wants_recs and not _SIMILARITY_CUE.search(message):
+            if Filmography(graph, get_linker(graph, _ent_to_lbl)).entities(message):
+                print("[responser] Recommendation wording around a person: answering with the filmography")
+                wants_recs = False
+
+        if wants_recs:
             print("[responser] Detected recommendation question")
             self.last_meta['route'] = 'recommendation'
             get_linker(graph, _ent_to_lbl)  # seed titles are linked through it
@@ -1446,8 +1461,13 @@ class Responser:
 
             if rec_result:
                 return rec_result
-            else:
-                return rec_error or "Could not generate recommendations."
+            # "Recommend movies with Tom Hanks": no seed film, but a person -> their films
+            ov = Filmography(graph, get_linker(graph, _ent_to_lbl)).answer(message, film_overview=False)
+            if ov:
+                print("[responser] No seed film: answering with the filmography of the person named")
+                self.last_meta['route'] = 'factual'
+                return self._use_overview(ov, None)
+            return rec_error or "Could not generate recommendations."
 
         # Factual: either normal or language-based branch (intent first, see design.md section 2)
         self.last_meta['route'] = 'factual'
@@ -1463,12 +1483,26 @@ class Responser:
             factual_result = None
             # 1) intent + linker
             intent = parse_intent(message)
+            linker = get_linker(graph, _ent_to_lbl)
             if intent.kind in ("fact", "films_of") and intent.relation and intent.confidence >= USE_THRESHOLD:
-                linker = get_linker(graph, _ent_to_lbl)
                 factual_result, linked = self._answer_intent(
                     intent, graph, linker, _ent_to_lbl, pred_lbl_to_uri, message)
                 if factual_result:
                     print(f"[responser] Answered through intent: {intent.relation} / {intent.mention}")
+                    entity_found, factual_error = True, None
+                    # "Tom Hanks filmography" / "Daniel Radcliffe's films" name no role: the default
+                    # (director) would hide an actor's films, so list every role instead
+                    if intent.kind == "films_of" and not intent.parts and role_of(message) is None:
+                        ov = Filmography(graph, linker).answer(message)
+                        if ov:
+                            factual_result = self._use_overview(ov, intent)
+            # 1b) a person, company or film named in wording the parser does not cover (not when the
+            #     intent path already linked a film whose value is missing: that goes to the prediction)
+            if not factual_result and not (linked and linked.get('kind') == 'film'):
+                ov = Filmography(graph, linker).answer(message, film_overview=intent.kind == "unknown")
+                if ov:
+                    print(f"[responser] Answered through filmography: {ov.relation} / {ov.entity_uri}")
+                    factual_result = self._use_overview(ov, intent)
                     entity_found, factual_error = True, None
             # 2) the old regex path
             if not factual_result:
@@ -1555,9 +1589,22 @@ class Responser:
 
         total_time = time.time() - start_time
         print(f"[responser] Total response time: {total_time:.3f}s")
+        if embedding_error and embedding_error.startswith("Could not parse relation"):
+            return ("Could not match this question to a film, person or relation in the graph. "
+                    "It may use a name the graph does not have.")
         if embedding_error:
             return embedding_error
         return "Could not generate an answer. Please rephrase your question in a simple way."
+
+    def _use_overview(self, ov, intent):
+        """Fill last_meta from a filmography/overview answer and return its text."""
+        self.last_meta.update(
+            entity_uri=ov.entity_uri, relation=ov.relation, property_uri=ov.property_uri,
+            inverse=ov.inverse, sparql=ov.sparql, answer_uris=list(ov.answer_uris),
+            intent=intent.to_dict() if intent else None, subject_kind=ov.kind,
+            via_films=[], alternatives=[], parts=[], compact=True,
+        )
+        return ov.text
 
     def _note_linked(self, intent, linked):
         """Metadata of the subject the intent path linked, when it gave no answer itself."""
