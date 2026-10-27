@@ -200,6 +200,27 @@ def resolve_entity(graph, lbl_to_ent: dict, text: str):
         # Further prioritization by type will happen elsewhere (e.g., responser.py)
         return list(set(exact_match_uris))
 
+    # --- 3 & 4 through the linker's label index when it is built (the SPARQL scans take seconds) ---
+    from core.linker import peek_linker, normalize, STOP
+    linker = peek_linker(graph)
+    if linker is not None:
+        key = normalize(text)
+        if not key:
+            return []
+        if key in linker.index:
+            return list(linker.index[key])[:10]
+        toks = [t for t in key.split() if t not in STOP and t in linker.tok]
+        if not toks or len(toks) < len([t for t in key.split() if t not in STOP]):
+            return []  # a word no label has: no label contains the text
+        rare = min(toks, key=lambda t: len(linker.tok[t]))
+        hits = sorted((linker.keys[i] for i in linker.tok[rare] if key in linker.keys[i]), key=len)
+        out = []
+        for k in hits:
+            out.extend(u for u in linker.index[k] if u not in out)
+            if len(out) >= 10:
+                break
+        return out[:10]
+
     # --- 3: Case-Insensitive Exact Match (SPARQL) ---
     safe = text.replace("\\", r"\\").replace('"', r"\"")
 

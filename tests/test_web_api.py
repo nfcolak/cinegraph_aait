@@ -64,6 +64,9 @@ r = build_reply("Which movies did Christopher Nolan direct?",
                 meta(route="factual", inverse=True, answer_uris=[f"http://www.wikidata.org/entity/Q{i}" for i in range(5)]), "", 5)
 results.append(check("long list answer is summarized with its count",
                      r["answer"] == "Movies directed by Christopher Nolan: 5 titles in the graph."))
+r = build_reply("How many awards did Parasite win?", '"Parasite" has 5 awards in the graph. "Parasite" won A and B and C and D and E.',
+                meta(route="factual", answer_uris=["u1", "u2", "u3", "u4", "u5"]), "", 5)
+results.append(check("count answer keeps its count sentence", r["answer"] == '"Parasite" has 5 awards in the graph.'))
 r = build_reply("x", "A and B and C and D", meta(route="factual", answer_uris=["u1", "u2", "u3", "u4"]), "", 5)
 results.append(check("list without a sentence head becomes a count", r["answer"] == "4 entries in the graph."))
 r = build_reply("What genre is Alien?", "The genres are A and B and C and D.",
@@ -86,6 +89,26 @@ r = build_reply("Who directed Harry Potter?",
                 "The movie was directed by Q106542729 (type: Q5). (Note: This is a prediction based on similar movies, because no factual answer was available in the knowledge graph.)",
                 meta(route="prediction", relation="director"), "", 100)
 results.append(check("prediction that is only a bare Q-ID is not an answer", not r["ok"] and "Q106542729" not in r["answer"]))
+
+# --- answers that say what the graph lacks ---
+r = build_reply("Who directed Galaxy Quest?", "The graph has no director for Galaxy Quest (1999).",
+                meta(route="factual", relation="director", gap=True), "", 5)
+results.append(check("gap answer is not ok and keeps its text",
+                     not r["ok"] and r["answer"] == "The graph has no director for Galaxy Quest (1999)." and r["cards"] == []))
+r = build_reply("Who directed Galaxy Quest?",
+                "The graph has no director for Galaxy Quest (1999). (Note: The closest guess of the graph embeddings is "
+                "A B; this is a prediction, not a fact from the graph.)",
+                meta(route="prediction", relation="director", gap=True), "", 5)
+results.append(check("gap with an embedding guess: the guess goes to the note, no cards",
+                     r["answer"] == "The graph has no director for Galaxy Quest (1999)." and "A B" in r["note"]
+                     and not r["ok"] and r["cards"] == []))
+r = build_reply("Show me a picture of Quorble Vantastic",
+                "The graph has no entity named Quorble Vantastic, so I cannot show a picture of it.",
+                meta(route="multimedia"), "", 5)
+results.append(check("picture of a missing name: a miss without cards", not r["ok"] and r["cards"] == [] and r["image"] is None))
+r = build_reply("Gandalf films", "Gandalf (character) appears in 5 films in the graph: A, B, C, D and E.",
+                meta(route="factual", compact=True, answer_uris=[f"u{i}" for i in range(5)]), "", 5)
+results.append(check("compact film list of a character is not summarized", r["answer"].startswith("Gandalf (character) appears in 5")))
 
 # --- intent metadata: via_films, alternatives, reading, parts ---
 from server.api import STATE  # noqa: E402

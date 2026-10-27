@@ -78,6 +78,8 @@ link("F9", "P179", "S1")
 link("F10", "P179", "S1")
 link("F10", "P179", "S3")
 link("F9", "P31", "S1")
+link("F11", "P8371", "S1")  # a film that only references the series
+link("F11", "P1889", "C1")  # "different from": not a film of the character
 
 labels = {k: v for k, v in labels.items()}
 t0 = time.time()
@@ -147,6 +149,8 @@ check("film class animated film is a film", lk.kind_of(e("F8")) == "film")
 c = top("Batman movies", want={"series", "film"})
 check("plural film word stripped", c and c.label == "Batman" and c.kind == "series")
 check("batman series -> films", lk.films_of_entity(e("S1")) == [WD + "F9", WD + "F10"])
+check("a film that only references a series or differs from a character is not one of its films",
+      WD + "F11" not in lk.films_of_entity(e("S1")) and WD + "F11" not in lk.films_of_entity(e("C1")))
 
 best = top("Batman", want={"series"})
 alts = lk.alternatives(best)
@@ -166,6 +170,87 @@ check("kind_of unknown", lk.kind_of(e("X1")) == "other")
 check("empty mention", lk.link("") == [])
 
 check("get_linker caches per graph", get_linker(g, labels) is get_linker(g, labels))
+
+# ---- question-robustness group 4: initials, kind by use, partial spans, aligned typos ----
+g2 = Graph()
+labels2 = {}
+
+
+def ent2(q, label, cls=None, date=None):
+    labels2[e(q)] = label
+    if cls:
+        g2.add((e(q), P31, e(cls)))
+    if date:
+        g2.add((e(q), P577, Literal(date)))
+
+
+def link2(a, rel, b):
+    g2.add((e(a), URIRef(P + rel), e(b)))
+
+
+ent2("M1", "Ravenfall", "Q11424", "1999-01-01")
+ent2("M2", "Ravenfall Rising", "Q11424", "2003-01-01")
+ent2("M3", "A Night in Lisbon", "Q11424", "1980-01-01")
+ent2("H1", "A. Quill", "Q5")               # an initial, not an article
+ent2("H2", "Tom", "Q5")                    # a bare first name
+ent2("H3", "Tom Harkness", "Q5")
+ent2("H4", "Marko Pistel", "Q5")
+ent2("H5", "Velmar", "Q5")
+ent2("K2", "Moonbeam Works", "Q999001")    # class without label or kind: a studio by use
+ent2("C2", "Doctor Quill", "Q999002")      # unmapped class: a character by use
+ent2("S4", "Ravenfall Saga", "Q999003")    # unmapped class: a series by use
+ent2("U1", "Lantern")                      # no class, no use
+ent2("S5", "Copper Tales", "Q24856")       # a classed film series ...
+ent2("S6", "Copper Tales", "Q999004")      # ... and a better-connected namesake that is a series only by use
+link2("M3", "P179", "S5")
+for f in ("M1", "M2"):
+    link2(f, "P179", "S6")
+    link2("S6", "P50", f)
+for f in ("M1", "M2"):
+    link2(f, "P272", "K2")
+    link2(f, "P674", "C2")
+    link2(f, "P179", "S4")
+    link2(f, "P161", "H3")
+link2("M3", "P57", "H4")
+link2("M3", "P161", "H1")
+lk2 = EntityLinker(g2, labels2)
+
+
+def top2(*a, **kw):
+    r = lk2.link(*a, **kw)
+    return r[0] if r else None
+
+
+check("initial 'A.' is kept: 'A. Quill' -> 'a quill'", normalize("A. Quill") == "a quill")
+check("article still dropped: 'A Night in Lisbon'", normalize("A Night in Lisbon") == "night in lisbon")
+check("'a.' lower case is an initial too", normalize("a. quill") == "a quill")
+c = top2("Quill", want={"person"})
+check("surname 'Quill' no longer hits 'A. Quill' as an exact label", c is None or c.match != "exact")
+c = top2("A. Quill", want={"person"})
+check("'A. Quill' still links to itself", c and c.qid == "H1" and c.match == "exact")
+check("unlabeled class + production company use -> company", lk2.kind_of(e("K2")) == "company")
+check("unmapped class + P674 use -> character", lk2.kind_of(e("C2")) == "character")
+check("unmapped class + P179 use -> series", lk2.kind_of(e("S4")) == "series")
+check("no class, no use -> other", lk2.kind_of(e("U1")) == "other")
+c = top2("Moonbeam Works", want={"person", "company"})
+check("studio linked as company for a films_of question", c and c.qid == "K2" and c.kind == "company")
+c = top2("Tom Harknes", want={"person"})
+check("typo beats a bare first-name span", c and c.qid == "H3" and c.match == "fuzzy")
+c = top2("Tom Harkness", want={"person"})
+check("exact full name still exact", c and c.qid == "H3" and c.match == "exact")
+c = top2("Mirko Pastel", want={"person"})
+check("aligned typo below 0.85 links (same first letters)", c and c.qid == "H4")
+c = top2("Birko Pastel", want={"person"})
+check("aligned typo with another first letter does not link", not c or c.qid != "H4")
+c = top2("Vilmar", want={"person"})
+check("one-word aligned typo of a person", c and c.qid == "H5")
+check("unknown name links nothing", lk2.link("Quorlax Zimbo", want={"person"}) == [])
+c = top2("Ravenfall Saga", want={"film", "character", "series"})
+check("series by use outranks the film for its own name", c and c.qid == "S4" and c.kind == "series")
+check("character by use -> its films", lk2.films_of_entity(e("C2")) == [WD + "M1", WD + "M2"])
+c = top2("Copper Tales", want={"series"})
+check("classed series beats a better-connected series-by-use of the same name", c and c.qid == "S5")
+
 check("runs in seconds", time.time() - t0 < 10)
 
 print("%d/%d passed" % (sum(results), len(results)))

@@ -8,6 +8,8 @@ import rdflib
 from rdflib.namespace import RDFS
 import numpy as np
 
+from core.intent import year_span
+
 
 # --- Embedding configuration (set from Responser) ---
 _ENTITY_EMBEDS = None
@@ -20,33 +22,236 @@ _PROPERTY_SIM_THRESHOLD = 0.18
 
 # URIs behind the last recommend_movies / recommend_by_theme call: 'seeds' (resolved seed films)
 # and 'recommendations' (label -> URI), so callers can show the exact films, not same-named ones.
-LAST_RUN: Dict[str, Any] = {'seeds': [], 'seed_names': [], 'recommendations': {}}
+# 'constraints' (genres/years applied to seeded results) and 'theme' (genres/companies/years of a
+# seedless search) let callers name what the list was filtered by.
+LAST_RUN: Dict[str, Any] = {'seeds': [], 'seed_names': [], 'recommendations': {}, 'constraints': {}, 'theme': {}}
 
 
 def _norm(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
 
 
-def _resolve_seeds(graph, title: str) -> Tuple[List[rdflib.URIRef], Optional[str]]:
+_WDT = 'http://www.wikidata.org/prop/direct/'
+_P577 = rdflib.URIRef(_WDT + 'P577')
+_P179 = rdflib.URIRef(_WDT + 'P179')
+
+# Roles through which a person or company stands for a body of films ("films like Nolan's")
+_PERSON_ROLES = (('director', 'P57'), ('cast', 'P161'), ('screenwriter', 'P58'), ('composer', 'P86'),
+                 ('producer', 'P162'))
+_COMPANY_ROLES = (('production company', 'P272'), ('distributor', 'P750'))
+MAX_TASTE_SEEDS = 12
+MIN_TASTE_FILMS = 3
+MAX_PER_FRANCHISE = 2
+
+# Moods and plural genre nouns -> genre labels of the graph (used by theme search)
+_MOOD_GENRES = [
+    (r"feel[\s-]?good|uplifting|heart[\s-]?warming|cheerful|cheer\s+me\s+up|light[\s-]?hearted|happy|wholesome",
+     ['comedy film', 'family film', 'romantic comedy', 'musical film']),
+    (r"funny|funnier|hilarious|laugh\w*|silly|comedies", ['comedy film']),
+    (r"scary|scarier|creepy|creepier|spooky|frightening|terrifying|chilling|horrors", ['horror film']),
+    (r"sad|tear[\s-]?jerkers?|emotional|moving|make\s+me\s+cry|dramas", ['drama film', 'melodrama']),
+    (r"exciting|thrilling|adrenaline|intense|edge[\s-]of[\s-](?:my|the)[\s-]seat|thrillers", ['action film', 'thriller film']),
+    (r"mind[\s-]?bending|mind[\s-]?blowing|twisty|cerebral|thought[\s-]?provoking|trippy",
+     ['science fiction film', 'psychological thriller']),
+    (r"date[\s-]night|love\s+stor(?:y|ies)|romances|romcoms?|rom[\s-]coms?", ['romance film', 'romantic comedy']),
+    (r"epic|epics", ['epic film']),
+    (r"cartoons?|animes?", ['animated film', 'anime']),
+    (r"children|family[\s-]friendly|for\s+the\s+family|for\s+kids", ['family film', "children's film"]),
+    (r"scifi|sci\s+fi", ['science fiction film']),
+    (r"westerns", ['western']), (r"musicals", ['musical film']), (r"documentaries", ['documentary film']),
+    (r"biopics", ['biographical film']), (r"war\s+(?:movies?|films?)", ['war film']),
+]
+
+# "X but funnier": comparative modifiers of a seed -> genre constraint
+_MODIFIER_GENRES = [
+    (r"funnier|more\s+(?:funny|fun|comedic|humou?r)|lighter|less\s+serious|as\s+a\s+comedy", 'comedy'),
+    (r"scarier|creepier|more\s+(?:scary|horror|creepy)", 'horror'),
+    (r"more\s+romantic|more\s+romance|with\s+(?:more\s+)?romance", 'romance'),
+    (r"more\s+action|with\s+more\s+action|more\s+exciting", 'action'),
+    (r"for\s+kids|for\s+children|family[\s-]friendly|for\s+the\s+family", 'family'),
+]
+
+# Words for a group of films used like "movies" before like/similar ("musicals like La La Land")
+_FILM_NOUNS = (r"(?:movies?|films?|flicks?|musicals?|comed(?:y|ies)|thrillers?|dramas?|westerns?|cartoons?|"
+               r"rom[\s-]?coms?|documentar(?:y|ies)|animes?|biopics?|horrors?|blockbusters?|classics?|"
+               r"picks?|titles?|shows?|stuff|ones?)")
+_DECADE = r"(?:(?:19|20)\d0|'?\d0)'?s"
+# Genre and mood words that may stand between "good"/"80s" and "movies" in a seedless request
+_THEME_WORD = (r"(?:action|adventure|comedy|comedic|drama|dramatic|horror|thriller|romance|romantic|sci[\s-]?fi|"
+               r"science\s+fiction|fantasy|animated|animation|family|kids?|children'?s?|documentary|crime|mystery|"
+               r"war|western|musical|biographical|historical|spy|heist|superhero|zombie|vampire|monster|slasher|"
+               r"christmas|holiday|teen|sports?|disaster|noir|indie|independent|foreign|silent|black[\s-]and[\s-]white|"
+               r"psychological|feel[\s-]?good|scary|funny|sad|uplifting|heart[\s-]?warming|cult|classic|rated|"
+               r"creepy|spooky|hilarious|exciting|thrilling|mind[\s-]?bending|wholesome|light[\s-]?hearted|epic|"
+               r"short|long|underrated|old|new|recent|older|"+ "(?:19|20)\\d0'?s|'?\\d0'?s)")
+_QUALITY = (r"(?:good|great|best|top|fun|nice|decent|classic|cool|underrated|must[\s-]see|essential|famous|"
+            r"popular|favou?rite|amazing|awesome|solid|new|recent|old)")
+
+# Wording that asks for films similar to something rather than films of someone. Callers that route
+# between a filmography and a recommendation use has_similarity_cue (core/responser.py does).
+_SIMILARITY_CUE = re.compile(
+    r"\b(?:like|similar|alike|lookalikes?|recommend\w*|suggest\w*|after\s+(?:watching|seeing)|"
+    r"(?:watch|see)\s+(?:next\s+)?after|in\s+the\s+mood|vibes?|fans?\s+of|lovers?\s+of|"
+    r"enjoy(?:s|ed|ing)?|lov(?:e|es|ed|ing)|"
+    r"(?:in\s+the\s+)?(?:style|vein|spirit|tradition)\s+of|reminiscent|comparable|akin|"
+    r"what\s+(?:next|now)|feel\s+of|taste)\b", re.I)
+
+
+# A question opening before a seedless request: "what's a good comedy", "can you name some westerns"
+_ASK = (r"(?:what(?:'s|’s|s|\s+is|\s+are|\s+would\s+be)\s+|which\s+(?:is|are)\s+|"
+        r"(?:can|could)\s+(?:you|u)\s+(?:name|give\s+me|find|pick)\s+|name\s+|i\s+(?:want|need)\s+)")
+_ASK_LEAD = r"^\W*" + _ASK
+# Audience or occasion after a seedless request: "for kids", "for date night"
+_FOR_WHOM = (r"\bfor\s+(?:the\s+)?(?:kids|children|family|a\s+date(?:\s+night)?|date\s+night|the\s+weekend|"
+             r"a\s+rainy\s+day|halloween|christmas)\b")
+# A mood word with no film noun: "something scary", "anything funny to watch"
+_MOOD_WORD = (r"(?:scary|creepy|spooky|funny|hilarious|sad|uplifting|heart[\s-]?warming|feel[\s-]?good|romantic|"
+              r"exciting|thrilling|mind[\s-]?bending|light[\s-]?hearted|wholesome|action[\s-]?packed|dark|"
+              r"cozy|cosy|relaxing|intense|epic|weird|trippy)")
+_SOMETHING_MOOD = (r"(?:something|anything)\s+(?:(?:really|very|super|pretty|a\s+bit|kind\s+of|good\s+and)\s+)?"
+                   + _MOOD_WORD + r"(?:\s+(?:and|or)\s+" + _MOOD_WORD + r")?(?:\s+to\s+(?:watch|see))?")
+
+
+def has_similarity_cue(text: str) -> bool:
+    """True when the wording asks for films similar to the named thing (style of, fans of, like ...)."""
+    return bool(_SIMILARITY_CUE.search(text or ""))
+
+
+def is_theme_request(text: str) -> bool:
     """
-    Seed title -> (film URIs, display name). A series or character named exactly
-    ("movies like Star Wars", "like Harry Potter") stands for its films. Uses the entity
-    linker when one is built for this graph (typo-tolerant), else the label scan.
+    A seedless request made only of quality, genre, mood and decade words ("good sci-fi films
+    please", "80s horror movies", "a feel-good movie"): no person or title is named, so a name
+    the linker finds in it ("Good" -> an actor) is a false match.
+    """
+    t = re.sub(r"\b(?:please|pls|thanks|thank\s+you|for\s+tonight|tonight|to\s+watch|now)\b|" + _FOR_WHOM, " ",
+               text or "", flags=re.IGNORECASE)
+    t = re.sub(r"[^\w\s'\-]", " ", t)
+    t = re.sub(r"^\s*(?:(?:recommend|suggest|give|show)\w*\s+(?:me\s+)?|i(?:'m|\s+am)\s+in\s+the\s+mood\s+for\s+|"
+               r"(?:i\s+)?(?:want|need)\s+)", "", t.strip(), flags=re.IGNORECASE)
+    t = re.sub(r"\s+", " ", t).strip()
+    t = re.sub(_ASK_LEAD, "", t, flags=re.IGNORECASE)
+    words = r"(?:(?:some|a\s+few|a|an|any|the|good|great|best|top|fun|nice|decent|cool|must[\s-]see|essential|" \
+            r"famous|popular|amazing|awesome|solid)\s+)*"
+    return re.fullmatch(words + r"(?:" + _THEME_WORD + r"\s+){0,3}" + _FILM_NOUNS, t, re.IGNORECASE) is not None \
+        or re.fullmatch(words + _FILM_NOUNS + r"\s+from\s+the\s+" + _DECADE, t, re.IGNORECASE) is not None \
+        or re.fullmatch(_SOMETHING_MOOD, t, re.IGNORECASE) is not None
+
+
+def year_range(text: str) -> Optional[Tuple[Optional[int], Optional[int]]]:
+    """
+    (first, last) release years asked for, either end may be None: "80s" / "the 1990s" /
+    "from the 2000s" -> a decade, "before 1980", "after 2010", "since 2015", "between 1990 and 2000",
+    "from 1994" / "in 1994" -> that year. None when the text names no years.
+    """
+    span = year_span(text)
+    return span[:2] if span else None
+
+
+def _genre_core(label: str) -> str:
+    """'Time-travel film' -> 'time travel', 'coming-of-age fiction' -> 'coming of age'."""
+    core = _norm(label)
+    core = re.sub(r"\s+(?:film|films|movie|movies|fiction|story)$", "", core)
+    return core
+
+
+def _genre_hit(target_core: str, label_core: str) -> bool:
+    """The asked genre occurs as whole words in the film's genre ('comedy' in 'romantic comedy')."""
+    if not target_core or not label_core:
+        return False
+    return re.search(r"(?<![a-z0-9])" + re.escape(target_core) + r"(?![a-z0-9])", label_core) is not None
+
+
+def _film_year(graph, uri) -> Optional[int]:
+    years = []
+    for o in graph.objects(rdflib.URIRef(str(uri)), _P577):
+        m = re.match(r"-?\d{4}", str(o))
+        if m:
+            years.append(int(m.group()))
+    return min(years) if years else None
+
+
+def _in_years(graph, uri, years) -> bool:
+    if not years:
+        return True
+    y = _film_year(graph, uri)
+    if y is None:
+        return False
+    lo, hi = years
+    return (lo is None or y >= lo) and (hi is None or y <= hi)
+
+
+def _franchise_keys(graph, uri, label: str) -> Set[str]:
+    """Keys shared by films of one franchise: the P179 series and the title stem ("Cars 3" -> "cars")."""
+    keys = {'series:' + str(o) for o in graph.objects(rdflib.URIRef(str(uri)), _P179)}
+    stem = re.split(r"\s*(?::|\s[–—-]\s)\s*", (label or "").lower())[0]
+    prev = None
+    while prev != stem:
+        prev = stem
+        stem = re.sub(r"\s+(?:\d+|[ivx]+|part\s+\w+|chapter\s+\w+|episode\s+\w+)$", "", stem).strip()
+    stem = _norm(stem)
+    if stem:
+        keys.add('stem:' + stem)
+    return keys
+
+
+def _diversify(graph, items: list, label_of, uri_of, free: Set[str] = frozenset()) -> list:
+    """
+    Keep the ranking but move a franchise's third and later films behind the rest. Franchises in
+    `free` (the one the user named: "like James Bond") are not capped.
+    """
+    counts: Dict[str, int] = {}
+    head, tail = [], []
+    for item in items:
+        keys = _franchise_keys(graph, uri_of(item), label_of(item)) - set(free)
+        if any(counts.get(k, 0) >= MAX_PER_FRANCHISE for k in keys):
+            tail.append(item)
+            continue
+        for k in keys:
+            counts[k] = counts.get(k, 0) + 1
+        head.append(item)
+    return head + tail
+
+
+def _taste_films(graph, linker, cand) -> Tuple[List[rdflib.URIRef], List[rdflib.URIRef]]:
+    """(seed films, every film of the role) for a person or company used as a taste."""
+    roles = _COMPANY_ROLES if cand.kind == 'company' else _PERSON_ROLES
+    ent = rdflib.URIRef(cand.uri)
+    by_role = []
+    for name, pid in roles:
+        films = list(dict.fromkeys(
+            s for s in graph.subjects(rdflib.URIRef(_WDT + pid), ent)
+            if isinstance(s, rdflib.URIRef) and linker.lbl.get(s) and linker.kind_of(s) == 'film'))
+        if films:
+            by_role.append((name, films))
+    if not by_role:
+        return [], []
+    # a filmmaker's style is the films they directed; otherwise the role with most films
+    directed = [f for name, f in by_role if name == 'director' and len(f) >= MIN_TASTE_FILMS]
+    films = directed[0] if directed else max(by_role, key=lambda r: len(r[1]))[1]
+    best = sorted(films, key=lambda f: (-linker._info(f)[2], linker.lbl.get(f, "")))
+    return best[:MAX_TASTE_SEEDS], films
+
+
+def _resolve_taste(graph, title: str) -> Tuple[List[rdflib.URIRef], Optional[str], Set[str]]:
+    """
+    Seed title -> (seed film URIs, display name, film URIs not to recommend). A film title first;
+    a series or character ("like Harry Potter", "like Jack Sparrow") stands for its films; a person or
+    company ("films like Nolan's", "something like Pixar") stands for the films they made.
     """
     from core.linker import peek_linker
 
     linker = peek_linker(graph)
     if linker is None:
         uri = resolve_movie_uri(graph, title)
-        return ([uri], None) if uri else ([], None)
+        return ([uri], None, set()) if uri else ([], None, set())
 
     # the linked label must cover most of what was typed ("recommend something" is not "Rec")
-    def covers(c) -> bool:
-        return c.match == "exact" or len(_norm(c.label)) >= 0.6 * len(_norm(title))
+    def covers(c, typed=title) -> bool:
+        return c.match == "exact" or len(_norm(c.label)) >= 0.6 * len(_norm(typed))
 
     films = [c for c in linker.link(title, want={'film'}, limit=3) if c.kind == 'film' and covers(c)]
     if films and films[0].match == "exact":
-        return [rdflib.URIRef(films[0].uri)], films[0].label
+        return [rdflib.URIRef(films[0].uri)], films[0].label, set()
     # no film with this exact title: a series or character stands for its films
     groups = []
     for c in linker.link(title, want={'series', 'character'}, limit=6):
@@ -54,12 +259,71 @@ def _resolve_seeds(graph, title: str) -> Tuple[List[rdflib.URIRef], Optional[str
             linked = linker.films_of_entity(c.uri)
             if linked:
                 groups.append((c.match == "exact", len(linked), c, linked))
-    if groups:
-        _exact, _n, c, linked = max(groups, key=lambda g: (g[0], g[1]))
-        return [rdflib.URIRef(f) for f in linked[:15]], c.label
+    best_group = max(groups, key=lambda g: (g[0], g[1])) if groups else None
+    if best_group and best_group[0]:
+        return [rdflib.URIRef(f) for f in best_group[3][:15]], best_group[2].label, set()
+
+    # a person or company: "Tarantino's", "Wes Anderson films", "Pixar movies"
+    who = re.sub(r"(?:['’]s|s['’])?(?:\s+(?:movies?|films?|work|stuff|style|filmography|productions?))?\s*$",
+                 "", title.strip(), flags=re.IGNORECASE).strip() or title
+
+    def taste(exact_only: bool):
+        for c in linker.link(who, want={'person', 'company'}, limit=3):
+            if c.kind not in ('person', 'company') or not covers(c, who):
+                continue
+            if exact_only and c.match != "exact":
+                continue
+            seeds, every = _taste_films(graph, linker, c)
+            if len(every) >= (1 if c.match == "exact" else MIN_TASTE_FILMS):
+                return seeds, f"{c.label}'s films", {str(f) for f in every}
+        return None
+
+    hit = taste(exact_only=True)
+    if hit:
+        return hit
+    if best_group:
+        return [rdflib.URIRef(f) for f in best_group[3][:15]], best_group[2].label, set()
     if films:
-        return [rdflib.URIRef(films[0].uri)], films[0].label
-    return [], None
+        return [rdflib.URIRef(films[0].uri)], films[0].label, set()
+    return taste(exact_only=False) or ([], None, set())
+
+
+def _resolve_seeds(graph, title: str) -> Tuple[List[rdflib.URIRef], Optional[str]]:
+    """Seed title -> (film URIs, display name); see _resolve_taste."""
+    uris, name, _exclude = _resolve_taste(graph, title)
+    return uris, name
+
+
+def _regroup_titles(graph, titles: List[str]) -> List[str]:
+    """
+    Fix "and" splits with the graph: rejoin "Pride" + "Prejudice" when "Pride and Prejudice" is a
+    film, and split "Inception and Interstellar" when the whole is no film but both halves are.
+    """
+    from core.linker import peek_linker
+
+    linker = peek_linker(graph)
+    if linker is None or not titles:
+        return titles
+
+    def exact_film(t: str) -> bool:
+        return any(c.kind == 'film' and c.match == 'exact' for c in linker.link(t, want={'film'}, limit=3))
+
+    out: List[str] = []
+    i = 0
+    while i < len(titles):
+        if (i + 1 < len(titles) and exact_film(f"{titles[i]} and {titles[i + 1]}")
+                and not (exact_film(titles[i]) and exact_film(titles[i + 1]))):
+            out.append(f"{titles[i]} and {titles[i + 1]}")
+            i += 2
+            continue
+        t = titles[i]
+        halves = re.split(r"\s+(?:and|&|or|plus)\s+", t, flags=re.IGNORECASE)
+        if len(halves) > 1 and not exact_film(t) and all(exact_film(h) for h in halves):
+            out.extend(halves)
+        else:
+            out.append(t)
+        i += 1
+    return out
 
 
 @dataclass
@@ -181,11 +445,25 @@ def extract_movie_titles(text: str) -> List[str]:
     trigger_patterns = [
         # Most specific patterns first (with clear ending markers)
         r"I\s+(?:really\s+)?(?:love|loved|enjoy|enjoyed|like|liked)\s+(.+?)\s*[—\-–]\s*(?:what|can\s+you)",
+        # "What else is like X", "anything else similar to X"
+        r"\b(?:else|anything|something)\s+(?:is\s+|that'?s\s+|that\s+is\s+)?(?:like|similar\s+to)\s+(.+?)(?:\s+(?:that|with|where|having)|[\.?!,]|$)",
+        # "musicals like La La Land", "comedies similar to Superbad"
+        r"^\W*(?:(?:any|some|good|great|best|more|other)\s+)*" + _FILM_NOUNS + r"\s+(?:like|similar\s+to|in\s+the\s+vein\s+of)\s+(.+?)(?:\s+(?:that|with|where|having)|[\.?!]|$)",
+        # "in the style of X", "in the spirit of X", "for fans of X", "X fans would love"
+        r"\bin\s+the\s+(?:style|vein|spirit|tradition|mould|mold)\s+of\s+(.+?)(?:\s+(?:that|with|where|having)|[\.?!,]|$)",
+        r"\bfor\s+(?:fans?|lovers?|admirers?)\s+of\s+(.+?)(?:\s+(?:that|with|where|having|would|might|will)|[\.?!,]|$)",
+        # "after Back to the Future what should I watch", "after Up, what next?"
+        r"^\W*after\s+(?!watching\b|seeing\b)(.+?)(?:\s*,|\s+(?:what|which|any|anything|something|should|recommend\w*|suggest\w*)\b)",
+        # "I just watched X, what next", "I adored X"
+        r"^I\s+(?:just\s+|really\s+|absolutely\s+)?(?:adore|adored|saw|watched|finished)\s+(.+?)(?:\s+(?:so|but|because|since)\s+|[\.!?,]|$)",
         r"(?:I(?:'m|\s+am)\s+)?(?:a\s+fan\s+of)\s+(.+?)\s*[—\-–]\s*(?:what|can\s+you)",
         # Simple "I [verb] X" patterns - allow appearing mid-sentence too
         r"^I\s+(?:really\s+)?(?:love|loved|enjoy|enjoyed|like|liked|watched)\s+(.+?)(?:\s+(?:so|but|because|since)\s+|\s*$)",
         r"I\s+(?:really\s+)?(?:love|loved|enjoy|enjoyed|like|liked|watched)\s+(.+?)(?:\s+(?:so|but|because|since)\s+|[\.!?]|$)",
         r"(?:since|given\s+that|if|after)\s+(?:I(?:'m|\s+am)?\s+)?(?:into|watching|love|loved|enjoy|enjoyed|like|liked)\s+(.+?)(?:\s+(?:that|with|where|having)|,\s*(?:what|which|can)|[\?]|$)",
+        # "good movies if you enjoyed Goodfellas", "for anyone who loved Up"
+        r"\b(?:if|when)\s+(?:you|u|one|someone)(?:'ve|\s+have|\s+had)?\s+(?:really\s+)?(?:into|love|loved|enjoy|enjoyed|like|liked|adored|watched)\s+(.+?)(?:\s+(?:that|with|where|having)|,\s*(?:what|which|can)|[\.?!]|$)",
+        r"\b(?:anyone|someone|people|those)\s+who\s+(?:really\s+)?(?:love[sd]?|enjoy(?:s|ed)?|like[sd]?|adore[sd]?)\s+(.+?)(?:\s+(?:that|with|where|having)|,\s*(?:what|which|can)|[\.?!]|$)",
         r"(?:I(?:'m|\s+am)\s+)?(?:a\s+fan\s+of|into|big\s+on)\s+(.+?)(?:\s+(?:that|with|where|having)|,\s*(?:what|which|can)|[\?]|$)",
         # "movies with X like Y" pattern - captures Y (the examples)
         r"(?:films?|movies?)\s+with\s+.+?\s+like\s+(.+?)(?:\s+(?:that|with|where|having)|[\?]|$)",
@@ -212,8 +490,21 @@ def extract_movie_titles(text: str) -> List[str]:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
             items = match.group(1).strip()
+            # Drop the request after the titles ("X and Y, what should I watch next") and the
+            # modifiers that are no part of a title ("heat but funnier", "Alien from the 80s")
+            items = re.sub(r"\s*,\s*(?:what|which|can|could|would|should|any|anything|something|recommend\w*|"
+                           r"suggest\w*|please|pls|thanks|so|now|next|give|show|tell)\b.*$", "", items, flags=re.IGNORECASE)
+            items = re.sub(r"\s+(?:what|which)\s+(?:should|would|could|can|do|else|next|now|to|other)\b.*$", "",
+                           items, flags=re.IGNORECASE)
+            items = re.sub(r"\s+(?:but|except|without|though|although|only\s+(?:funnier|darker|scarier|newer|older))\s+.*$",
+                           "", items, flags=re.IGNORECASE)
+            items = re.sub(r"\s+(?:from|in)\s+the\s+" + _DECADE + r".*$", "", items, flags=re.IGNORECASE)
+            items = re.sub(r"\s+(?:before|after|since|from)\s+(?:19|20)\d\d\b.*$", "", items, flags=re.IGNORECASE)
+            items = re.sub(r"\s+for\s+(?:kids|children|tonight|a\s+date(?:\s+night)?|date\s+night|the\s+(?:family|weekend))\b.*$",
+                           "", items, flags=re.IGNORECASE)
+            items = items.strip()
             # Skip if it's just a reference word
-            if items.lower() in ['it', 'that', 'this', 'them']:
+            if not items or items.lower() in ['it', 'that', 'this', 'them']:
                 continue
 
             # Split by commas, "and", and "or"
@@ -535,16 +826,29 @@ def extract_constraints(text: str) -> Dict[str, any]:
     }
 
     detected_genres = []
+    # Seed titles are not constraints: "movies like War of the Worlds" asks for no war film,
+    # "films like 1917" for no year
     text_lower = text.lower()
+    for title in extract_movie_titles(text):
+        text_lower = re.sub(re.escape(title.lower()), " ", text_lower)
 
     for genre_name, keywords in genre_keywords.items():
         for keyword in keywords:
-            if re.search(r'\b' + re.escape(keyword) + r'\b', text_lower):
+            if re.search(r'\b' + re.escape(keyword) + r'(?:s|es)?\b', text_lower):
                 detected_genres.append(genre_name)
                 break
 
+    # "like Heat but funnier" -> comedy
+    for pattern, genre_name in _MODIFIER_GENRES:
+        if re.search(r'\b(?:' + pattern + r')\b', text_lower) and genre_name not in detected_genres:
+            detected_genres.append(genre_name)
+
     if detected_genres:
         constraints['genres'] = detected_genres
+
+    years = year_range(text_lower)
+    if years:
+        constraints['years'] = years
 
     return constraints
 
@@ -954,23 +1258,37 @@ def is_recommendation_question(text: str) -> bool:
         r'\b(?:director|cast|actor|actress|writer|producer|star)\b',  # Asking about people
         r'\b(?:award|oscar|nomination|prize|won|winner)\b',  # Awards questions
         r'\b(?:budget|box\s+office|revenue|gross|profit)\b',  # Financial questions
+        r'\b(?:genre|length|runtime|duration)\b',  # Metadata questions
+        r'\bcomposer\b',
+    ]
+    # Weaker cues: factual unless the question explicitly asks for suggestions
+    # ("recommend a movie released after 2010", "suggest something with a great soundtrack")
+    soft_indicators = [
         r'\b(?:rating|score|review|critic)\b',  # Review questions
         r'\b(?:release|premiere|date|year)\b',  # Date questions
         r'\b(?:plot|story|about|summary|synopsis)\b',  # Plot questions
-        r'\b(?:genre|length|runtime|duration)\b',  # Metadata questions
-        r'\b(?:soundtrack|music|score|composer)\b',  # Music questions
+        r'\b(?:soundtrack|music)\b',  # Music questions
         r'\b(?:filmed|shot|location|setting)\b',  # Production questions
     ]
+    explicit_request = re.search(
+        r"\b(?:recommend\w*|suggest\w*|what\s+should\s+I\s+(?:watch|see)|in\s+the\s+mood\s+for)\b", text, re.IGNORECASE)
 
     # Titles named as seeds ("movies like Star Wars", "similar to The Score") must not trip the
     # factual indicators below, so they are blanked out before the check.
     check_text = text
     for title in extract_movie_titles(text):
         check_text = re.sub(re.escape(title), " ", check_text, flags=re.IGNORECASE)
+    # "for anyone who loved X": a relative "who", not a question about a person
+    check_text = re.sub(r"\b(?:anyone|someone|people|those|fans|viewers)\s+who\b", " ", check_text, flags=re.IGNORECASE)
 
-    for indicator in factual_indicators:
+    for indicator in factual_indicators + ([] if explicit_request else soft_indicators):
         if re.search(indicator, check_text, re.IGNORECASE):
             return False  # This is likely a factual question, not a recommendation
+
+    # Only genre, mood, quality and decade words around a film noun ("kids movies", "80s horror films"):
+    # nothing to look up, so a themed list is the answer
+    if is_theme_request(text):
+        return True
 
     # Now check for explicit recommendation patterns
     patterns = [
@@ -1017,6 +1335,30 @@ def is_recommendation_question(text: str) -> bool:
         r'[\s\-]like\s+(?:movies?|films?)\b',
         r'\b(?:watch|see)\s+(?:next\s+)?(?:after|following)\b',
         r'\bafter\s+(?:watching|seeing)\b',
+
+        # A taste followed by "what next": "I loved Up, what next?", "just saw Heat... now what?"
+        r'\b(?:love|loved|enjoy|enjoyed|like|liked|adore|adored|watched|saw|finished)\b.*\b(?:what|which)(?:\s+\w+)?\s+(?:next|now|else)\b',
+        r'\b(?:now|next)\s+what\b',
+        r'^\W*after\s+.+?\b(?:what|which|anything|something)\b',
+        # "films for fans of Alien", "if you're a fan of Heat", "for lovers of noir"
+        r'\b(?:fans?|lovers?|admirers?)\s+of\b',
+        # "What else is like The Dark Knight?", "anything else similar to Up"
+        r'\b(?:what|anything|something)\s+else\s+(?:is\s+|that\'?s\s+)?(?:like|similar)\b',
+        # "musicals like La La Land", "comedies similar to Superbad"
+        r'\b' + _FILM_NOUNS + r'\s+(?:like|similar\s+to|in\s+the\s+vein\s+of)\s+',
+        # "in the style of Christopher Nolan", "something in the spirit of Amelie"
+        r'\bin\s+the\s+(?:style|vein|spirit|tradition|mould|mold)\s+of\b',
+        r'\b(?:reminiscent\s+of|comparable\s+to|akin\s+to)\b',
+        # Seedless requests by quality, mood or decade: "good sci-fi films please", "best romantic
+        # movies", "a feel-good movie", "80s action movies", "movies from the 90s"
+        r'^\W*' + _ASK + r'?(?:(?:some|a\s+few|a|an|any|the|me)\s+)*' + _QUALITY + r'\s+(?:' + _THEME_WORD + r'\s+){0,3}'
+        + _FILM_NOUNS + r'\b',
+        # a mood with no film noun: "something scary for tonight", "I want something funny"
+        r'^\W*(?:i\s+(?:want|need|could\s+use)\s+|give\s+me\s+|show\s+me\s+|got\s+)?' + _SOMETHING_MOOD + r'\b',
+        r'^\W*(?:(?:some|a\s+few|a|an|any|the)\s+)*(?:' + _QUALITY + r'\s+)?' + _DECADE + r'\s+(?:' + _THEME_WORD + r'\s+){0,2}' + _FILM_NOUNS + r'\b',
+        r'^\W*(?:(?:some|good|great|best)\s+)?(?:movies?|films?)\s+from\s+the\s+' + _DECADE,
+        r'\b(?:feel[\s-]?good|scary|creepy|spooky|funny|hilarious|uplifting|heart[\s-]?warming|tear[\s-]?jerker|'
+        r'mind[\s-]?bending|thrilling|romantic|exciting|light[\s-]?hearted|wholesome)\s+(?:[\w\-]+\s+){0,2}?(?:movies?|films?|flicks?)\b',
     ]
 
     for pattern in patterns:
@@ -1388,7 +1730,7 @@ def movie_matches_language(graph, movie_uri: rdflib.URIRef, language_qid: str) -
 
 
 def apply_constraints(graph, recommendations: List[Tuple[str, float]],
-                     constraints: Dict[str, any]) -> List[Tuple[str, float]]:
+                     constraints: Dict[str, any], uri_map: Optional[Dict[str, str]] = None) -> List[Tuple[str, float]]:
     """
     Filter recommendations based on extracted constraints.
 
@@ -1396,6 +1738,7 @@ def apply_constraints(graph, recommendations: List[Tuple[str, float]],
         graph: The RDF graph
         recommendations: List of (movie_label, similarity_score) tuples
         constraints: Dict with constraint types and values
+        uri_map: label -> film URI of the recommendations (skips the slow label lookup)
 
     Returns:
         Filtered list of (movie_label, similarity_score) tuples
@@ -1407,8 +1750,12 @@ def apply_constraints(graph, recommendations: List[Tuple[str, float]],
 
     for movie_label, score in recommendations:
         # Resolve movie URI
-        movie_uri = resolve_movie_uri(graph, movie_label)
+        mapped = (uri_map or {}).get(movie_label)
+        movie_uri = rdflib.URIRef(mapped) if mapped else resolve_movie_uri(graph, movie_label)
         if not movie_uri:
+            continue
+
+        if constraints.get('years') and not _in_years(graph, movie_uri, constraints['years']):
             continue
 
         # Check rating constraints (only if rating data is available)
@@ -1460,17 +1807,9 @@ def recommend_movies_with_constraints(graph, seed_titles: List[str],
     Returns:
         List of (movie_label, similarity_score) tuples
     """
-    # Get more recommendations to compensate for filtering
-    multiplier = 1
-    if constraints:
-        multiplier = 10
-        if constraints.get('genres'):
-            multiplier = max(multiplier, 12)
-        if constraints.get('language_qid'):
-            multiplier = max(multiplier, 18)
-        initial_k = top_k * multiplier
-    else:
-        initial_k = top_k
+    # Rank every similar film (ranking cost does not depend on k), then filter: a narrow
+    # constraint ("musicals like La La Land", "like Alien from the 80s") still finds enough films
+    initial_k = max(top_k * 60, 400) if constraints else top_k
 
     # Get initial recommendations
     recommendations = recommend_movies(graph, seed_titles, initial_k)
@@ -1478,13 +1817,29 @@ def recommend_movies_with_constraints(graph, seed_titles: List[str],
     # Apply constraints if any
     if constraints:
         print(f"[recommender] Applying constraints: {constraints}")
-        recommendations = apply_constraints(graph, recommendations, constraints)
+        uri_map = dict(LAST_RUN.get('recommendations') or {})
+        seeds = (list(LAST_RUN.get('seeds') or []), list(LAST_RUN.get('seed_names') or []))
+        filtered = apply_constraints(graph, recommendations, constraints, uri_map)
+        if seeds[0] and len(filtered) < top_k:
+            # "like Heat but funnier": few films pass the seed's own genre gate, so rank the films
+            # that meet the constraint by their similarity to the seeds, without that gate
+            extra = recommend_movies(graph, seed_titles, top_k * 4, lenient_genre_filter=True,
+                                     candidate_filter=lambda uri: bool(apply_constraints(
+                                         graph, [('_', 0.0)], constraints, {'_': str(uri)})))
+            uri_map.update(LAST_RUN.get('recommendations') or {})
+            have = {t.lower() for t, _s in filtered}
+            filtered += [(t, s) for t, s in extra if t.lower() not in have]
+            LAST_RUN['seeds'], LAST_RUN['seed_names'] = seeds
+        recommendations = filtered
+        LAST_RUN['recommendations'] = {t: uri_map[t] for t, _s in recommendations[: max(top_k, 50)] if t in uri_map}
+        LAST_RUN['constraints'] = dict(constraints)
 
     # Return top K after filtering
     return recommendations[:top_k]
 
 
-def recommend_movies(graph, seed_titles: List[str], top_k: int = 5, lenient_genre_filter: bool = False) -> List[Tuple[str, float]]:
+def recommend_movies(graph, seed_titles: List[str], top_k: int = 5, lenient_genre_filter: bool = False,
+                     candidate_filter=None) -> List[Tuple[str, float]]:
     """
     Recommend movies based on a list of seed titles.
     Returns list of (movie_label, similarity_score) tuples.
@@ -1494,22 +1849,32 @@ def recommend_movies(graph, seed_titles: List[str], top_k: int = 5, lenient_genr
         seed_titles: List of seed movie titles
         top_k: Number of recommendations to return
         lenient_genre_filter: If True, use softer genre gating (useful for actor queries)
+        candidate_filter: optional uri -> bool; only these films are ranked, and the seed's genre
+            gate is dropped (the caller asked for something else, e.g. a comedy like a thriller)
     """
     # 1. Resolve seed movie URIs (the entity linker when it is built: typo-tolerant, picks the
     #    well-known film among same-named ones; else the label scan)
     seed_uris = []
     seed_names = []
-    for title in seed_titles:
-        uris, name = _resolve_seeds(graph, title)
+    excluded: Set[str] = set()
+    free_franchises: Set[str] = set()
+    for title in _regroup_titles(graph, list(seed_titles)):
+        uris, name, exclude = _resolve_taste(graph, title)
         if uris:
             seed_uris.extend(u for u in uris if u not in seed_uris)
             seed_names.append(name or title)
+            excluded |= exclude
+            if len(uris) > 1 and not exclude:
+                # a series or character named as the seed: its other films are not capped
+                free_franchises |= {k for u in uris for k in _franchise_keys(graph, u, '') if k.startswith('series:')}
         else:
             print(f"[recommender] Could not resolve title: {title}")
 
     LAST_RUN['seeds'] = [str(u) for u in seed_uris]
     LAST_RUN['seed_names'] = seed_names
     LAST_RUN['recommendations'] = {}
+    LAST_RUN['constraints'] = {}
+    LAST_RUN['theme'] = {}
     if not seed_uris:
         return []
 
@@ -1537,8 +1902,10 @@ def recommend_movies(graph, seed_titles: List[str], top_k: int = 5, lenient_genr
     film_uri = rdflib.URIRef('http://www.wikidata.org/entity/Q11424')
 
     for s in graph.subjects(p31_uri, film_uri):
-        if s not in seed_uris:  # Don't recommend seed movies
-            candidate_movies.add(s)
+        # Don't recommend seed movies, nor the other films of a person named as the taste
+        if s not in seed_uris and str(s) not in excluded:
+            if candidate_filter is None or candidate_filter(s):
+                candidate_movies.add(s)
 
     print(f"[recommender] Found {len(candidate_movies)} candidate movies")
 
@@ -1581,7 +1948,9 @@ def recommend_movies(graph, seed_titles: List[str], top_k: int = 5, lenient_genr
         candidate_genres = profile.properties.get('genre', set())
         genre_jaccard = 0.0
         min_genre_jaccard = 0.12 if lenient_genre_filter else 0.32
-        if seed_genre_union and candidate_genres:
+        if candidate_filter is not None:
+            pass  # the caller's filter replaces the seed's genre and metadata gates
+        elif seed_genre_union and candidate_genres:
             overlap_count = len(candidate_genres & seed_genre_union)
             union_count = len(candidate_genres | seed_genre_union)
             genre_jaccard = overlap_count / union_count if union_count else 0.0
@@ -1603,7 +1972,7 @@ def recommend_movies(graph, seed_titles: List[str], top_k: int = 5, lenient_genr
                 continue
 
         metadata_ok = avg_similarity >= _PROPERTY_SIM_THRESHOLD or strongest_overlap >= 2
-        if not metadata_ok and embed_score < 0.6:
+        if not metadata_ok and embed_score < 0.6 and candidate_filter is None:
             continue
 
         # Rating bonus keeps high-signal films near the top
@@ -1627,9 +1996,12 @@ def recommend_movies(graph, seed_titles: List[str], top_k: int = 5, lenient_genr
         rating_for_sort = profile.rating if profile.rating is not None else 0.0
         recommendations.append((label, combined_score, rating_for_sort, str(candidate_uri)))
 
-    # 5. Sort by similarity and return top K
+    # 5. Sort by similarity, at most two films of one franchise ahead of the rest, return top K
     recommendations.sort(key=lambda x: (x[1], x[2]), reverse=True)
-    LAST_RUN['recommendations'] = {label: uri for label, _s, _r, uri in recommendations[: max(top_k, 50)]}
+    pool = max(top_k, 50)
+    head = _diversify(graph, recommendations[: pool * 2], lambda x: x[0], lambda x: x[3], free_franchises)
+    recommendations = head + recommendations[pool * 2:]
+    LAST_RUN['recommendations'] = {label: uri for label, _s, _r, uri in recommendations[:pool]}
     trimmed = [(label, score) for label, score, _r, _u in recommendations]
     return trimmed[:top_k]
 
@@ -1645,6 +2017,8 @@ def recommend_by_theme(graph, query_text: str, top_k: int = 5) -> List[Tuple[str
     LAST_RUN['seeds'] = []
     LAST_RUN['seed_names'] = []
     LAST_RUN['recommendations'] = {}
+    LAST_RUN['constraints'] = {}
+    LAST_RUN['theme'] = {}
     query_lower = query_text.lower()
 
     # Production company mappings
@@ -1686,7 +2060,7 @@ def recommend_by_theme(graph, query_text: str, top_k: int = 5) -> List[Tuple[str
         'animated': ['animated film', 'animation film'],
         'animation': ['animated film', 'animation film'],
         'family': ['family film'],
-        'kids': ['family film'],
+        'kids': ['family film', "children's film"],
 
         # Seasonal / holiday themes
         'christmas': ['christmas film', 'holiday film'],
@@ -1756,11 +2130,12 @@ def recommend_by_theme(graph, query_text: str, top_k: int = 5) -> List[Tuple[str
         'soccer': ['sports film'],
         'boxing': ['sports film'],
         'racing': ['auto racing film'],
+        'sport': ['sport film'],
 
         # Youth / coming-of-age
         'teen': ['teen film'],
-        'coming of age': ['coming-of-age story'],
-        'coming-of-age': ['coming-of-age story'],
+        'coming of age': ['coming-of-age fiction', 'coming-of-age story'],
+        'coming-of-age': ['coming-of-age fiction', 'coming-of-age story'],
         'high school': ['teen film'],
         'college': ['teen film'],
 
@@ -1790,16 +2165,25 @@ def recommend_by_theme(graph, query_text: str, top_k: int = 5) -> List[Tuple[str
         if _has(keyword):
             target_companies.extend(qids)
 
-    for keyword, genres in genre_keywords.items():
-        if _has(keyword):
-            for genre in genres:
-                if genre not in target_genres:
-                    target_genres.append(genre)
+    def _add(genres):
+        for genre in genres:
+            if genre not in target_genres:
+                target_genres.append(genre)
 
-    if not target_companies and not target_genres:
+    for keyword, genres in genre_keywords.items():
+        # plurals too: "comedies", "thrillers", "westerns"
+        if _has(keyword) or _has(keyword + 's') or (keyword.endswith('y') and _has(keyword[:-1] + 'ies')):
+            _add(genres)
+    for pattern, genres in _MOOD_GENRES:
+        if re.search(r"(?<![a-z0-9])(?:" + pattern + r")(?![a-z0-9])", query_lower):
+            _add(genres)
+
+    years = year_range(query_lower)
+    if not target_companies and not target_genres and not years:
         return []
 
-    print(f"[recommender] Theme-based search - Companies: {target_companies}, Genres: {target_genres}")
+    print(f"[recommender] Theme-based search - Companies: {target_companies}, Genres: {target_genres}, Years: {years}")
+    target_cores = [_genre_core(g) for g in target_genres]
 
     # Find all films in graph
     p31_uri = rdflib.URIRef('http://www.wikidata.org/prop/direct/P31')
@@ -1811,6 +2195,8 @@ def recommend_by_theme(graph, query_text: str, top_k: int = 5) -> List[Tuple[str
 
     for movie_uri in graph.subjects(p31_uri, film_uri):
         score = 0.0
+        if years and not _in_years(graph, movie_uri, years):
+            continue
 
         # Check production company match
         if target_companies:
@@ -1824,11 +2210,12 @@ def recommend_by_theme(graph, query_text: str, top_k: int = 5) -> List[Tuple[str
             for genre_uri in graph.objects(movie_uri, genre_prop):
                 # Get genre label
                 for label_obj in graph.objects(genre_uri, RDFS.label):
-                    genre_label = str(label_obj).lower()
-                    for target_genre in target_genres:
-                        if target_genre in genre_label or genre_label in target_genre:
-                            score += 1.0
-                            break
+                    genre_core = _genre_core(str(label_obj))
+                    if any(_genre_hit(t, genre_core) for t in target_cores):
+                        score += 1.0
+                        break
+        elif years and not target_companies:
+            score = 1.0  # "movies from the 90s": every film of those years, best-known first
 
         # Only include if there's a match
         if score > 0:
@@ -1846,7 +2233,10 @@ def recommend_by_theme(graph, query_text: str, top_k: int = 5) -> List[Tuple[str
         return sum(1 for _ in graph.predicate_objects(uri))
 
     candidates.sort(key=lambda x: (x[1], _depth(x[2])), reverse=True)
+    pool = max(top_k, 50)
+    candidates = _diversify(graph, candidates[: pool * 2], lambda x: x[0], lambda x: x[2]) + candidates[pool * 2:]
     print(f"[recommender] Found {len(candidates)} theme-based candidates")
+    LAST_RUN['theme'] = {'genres': list(target_genres), 'companies': list(target_companies), 'years': years}
     LAST_RUN['seeds'] = []
     LAST_RUN['recommendations'] = {label: str(uri) for label, _s, uri in candidates[: max(top_k, 50)]}
     return [(label, score) for label, score, _u in candidates[:top_k]]

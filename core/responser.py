@@ -2,6 +2,7 @@
 # Core responder: parse entity and relation from a question,
 # query the local RDF graph, and format a factual answer.
 
+import copy
 import re
 import os
 import time
@@ -14,10 +15,13 @@ from core.entity import extract_title, resolve_entity
 from core.relation import parse_relation, resolve_property_uri_from_local
 from core.query import ONE_QID_ONE_RELATION, ONE_LABEL_ONE_RELATION
 from core.intent import parse_intent, USE_THRESHOLD
-from core.linker import get_linker, normalize, STOP
-from core.filmography import Filmography, role_of
+from core.linker import get_linker, peek_linker, normalize, STOP
+from core.filmography import (Filmography, role_of, genre_of, years_of, mask_names, _year_phrase, COMPANY_ROLE,
+                              ROLE_PROP, WDT)
 from core.recommender import (
     is_recommendation_question,
+    has_similarity_cue,
+    is_theme_request,
     extract_movie_titles,
     recommend_movies,
     recommend_by_theme,
@@ -73,6 +77,7 @@ INTENT_FORWARD = {
     "distributed by": "{title_phrase} was distributed by {answers}.",
     "cinematographer": "The cinematographer of {title_phrase} was {answers}.",
     "original language": "The original language of {title_phrase} is {answers}.",
+    "characters": "The characters of {title_phrase} include {answers}.",
 }
 INTENT_INVERSE = {
     "cast member": "Movies with {who} include {answers}.",
@@ -100,11 +105,50 @@ MAX_VIA_VALUES = 6        # values listed for a non-film subject
 MAX_FILMS_LISTED = 10     # films named in a films_of answer
 MAX_ALTERNATIVES = 5
 LINK_LIMIT = 10
+GUESS_NEIGHBOURS = 10     # TransE: nearest entities tried for a plausible guess
+YEAR_SLACK = 1            # "Titanic (1997)" still means a film dated 1996-1998
 
-# Wording that asks for films similar to something (recommendation) rather than films of someone
-_SIMILARITY_CUE = re.compile(
-    r"\b(?:like|similar|alike|lookalikes?|recommend\w*|suggest\w*|after\s+(?:watching|seeing)|"
-    r"(?:watch|see)\s+(?:next\s+)?after|in\s+the\s+mood|vibes?|fans?\s+of|enjoy\w*|lov\w+)\b", re.I)
+# "Which movies feature Gandalf?": the films of a character or series, not their cast
+_ASKS_FILMS = re.compile(r"\b(?:which|what)\s+(?:movies|films)\b|\b(?:movies|films)\s+(?:with|featuring|starring)\b|"
+                         r"\b(?:movies|films)\s+(?:is|are|was|were|does|do|did)\b", re.I)
+
+_FILMS_WORD = re.compile(r"\b(?:movies?|films?|filmography)\b", re.I)
+
+# Explicit request wording that makes "movies directed by X" a pseudo-recommendation
+_REC_REQUEST = re.compile(r"\b(?:recommend\w*|suggest\w*|given\s+that|since\s+i|because\s+i|"
+                          r"i\s+(?:really\s+)?(?:like|love|enjoy|liked|loved|enjoyed)|fan\s+of)\b", re.I)
+
+
+def _pseudo_name(name, message):
+    """The capitalized words a pseudo-recommendation detector caught ("Spielberg in the" -> "Spielberg");
+    unchanged for a question typed in lower case."""
+    if not name or message == message.lower():
+        return name
+    words = name.split()
+    keep = []
+    for w in words:
+        if not w[:1].isupper() and keep and w.lower() not in ("de", "del", "van", "von", "da", "di", "le", "la"):
+            break
+        keep.append(w)
+    while keep and not keep[-1][:1].isupper():
+        keep.pop()
+    return " ".join(keep) or name
+
+
+# Nouns for "The graph has no <noun> for <film>"
+GAP_NOUNS = {
+    "award received": "award", "nominated for": "award nomination", "distributed by": "distributor",
+    "publication date": "release date", "cast member": "cast member", "characters": "character",
+}
+
+# Plural nouns for "how many <relation>" fact counts
+COUNT_NOUNS = {
+    "award received": "awards", "nominated for": "nominations", "cast member": "cast members",
+    "genre": "genres", "director": "directors", "screenwriter": "screenwriters", "composer": "composers",
+    "producer": "producers", "production company": "production companies", "distributed by": "distributors",
+    "cinematographer": "cinematographers", "country of origin": "countries", "original language": "languages",
+    "characters": "characters",
+}
 
 # --- Multimedia patterns (from respo1) ---
 
@@ -115,22 +159,32 @@ _MULTIMEDIA_PATTERNS = [
     # "Image of...", "Poster for..." (Start of sentence or distinct phrase)
     r'^(?:picture|image|photo|pic|poster|shot|frame|still)s?\s+(?:of|from|for|with|featuring)\b',
     r'\bimage\s+of\b',
+    # "got a photo of X?", "do you have a picture of X", "any pics of X"
+    r'\b(?:got|have|has|any)\s+(?:(?:a|an|any|some)\s+)?(?:picture|image|photo|pic|poster|headshot)s?\s+(?:of|for|from)\b',
 
     # 2. "Look Like" Queries
     # "What does X look like", "How does X look", "Can you show me what X looks like"
     r'\b(?:what|how)\s+(?:does|do|did|can|could|would)?\s*(?:.+)\s+looks?\s*(?:like)?\b',
     r'\blooks?\s+like\b',
 
-    # 3. Direct "Show me [Entity]"
-    # Catch "Show me [Person]" but try to avoid "Show me movies"
-    # We rely on the Entity Resolution later to determine if it's a person or movie.
-    r'\b(?:show|display|see|view)\s+(?:me\s+)?([A-Z][a-zA-Z0-9\-\.]+(?:\s+[A-Z][a-zA-Z0-9\-\.]+)*)\s*[\.\?!]?$',
-    r'\blet\s+me\s+see\s+([A-Z][a-zA-Z0-9\-\.]+(?:\s+[A-Z][a-zA-Z0-9\-\.]+)*)\s*[\.\?!]?$',
+    # 3. "Inception poster", "Tom Hanks photo": the picture word ends the question
+    r'\b(?:picture|image|photo|pic|poster|headshot)s?\s*[\.\?!]*$',
 
     # 4. Specific Backdrops/Scenes - VERY RESTRICTIVE
     # Only explicit "scene from" patterns
     r'\bscene\s+from\b',
     r'\bin\s+a\s+scene\b',
+]
+
+# Direct "Show me [Name]" / "I want to see [Name]": matched on the original case (a capitalized name),
+# so "show me movies" stays factual. Entity resolution later decides between person and film.
+_SHOW_NAME_PATTERNS = [
+    # "Show me X" at the start, or after "can you" / "please"
+    r'^\s*(?i:(?:(?:can|could|would|will)\s+you\s+)?(?:please\s+)?(?:show|display|view)(?:\s+me)?)\s+'
+    r'([A-Z][\w\-\.\']+(?:\s+[A-Z][\w\-\.\']+)*)\s*[\.\?!]*$',
+    # "I want to see X", "let me see X", "can I see X" (not "did you see X")
+    r'\b(?i:(?:want|wanna|like|love)\s+to\s+see|let\s+me\s+see|(?:can|could|may)\s+i\s+see)\s+'
+    r'([A-Z][\w\-\.\']+(?:\s+[A-Z][\w\-\.\']+)*)\s*[\.\?!]*$',
 ]
 
 # ---------- Config ----------
@@ -326,6 +380,11 @@ def is_multimedia_query(text: str) -> bool:
     for pattern in _MULTIMEDIA_PATTERNS:
         if re.search(pattern, query_lower):
             return True
+    if not text.isupper():  # shouting: capitals say nothing about names
+        for pattern in _SHOW_NAME_PATTERNS:
+            m = re.search(pattern, text.strip())
+            if m and m.group(1).split()[0].lower() not in ("me", "the", "a", "an", "all", "some", "any"):
+                return True
     return False
 
 
@@ -344,11 +403,25 @@ def _qid_to_imdb_id(graph, entity_uri: str):
     return None
 
 
-def _resolve_image_url(message, graph, lbl_to_ent):
+def _with_image(graph, linker, name, want, map_type):
+    """The best-known entity of a wanted kind named `name` (exact or close typo) with a picture in map_type."""
+    if not name or len(name) < 2:
+        return None
+    for c in linker.link(name, want=want, limit=LINK_LIMIT):
+        if c.kind not in want or c.match not in ("exact", "fuzzy"):
+            continue
+        imdb = _qid_to_imdb_id(graph, c.uri)
+        if imdb and imdb in _IMAGE_MAP.get(map_type, {}):
+            return rdflib.URIRef(c.uri)
+    return None
+
+
+def _resolve_image_url(message, graph, lbl_to_ent, linker=None):
     """
     Robustly extracts entity name, resolves URI, and returns image path.
     Prioritizes person images for person queries, movie posters for movie queries.
     Handles 'backdrop' (scene) queries for both movies and actors.
+    linker: picks among same-name entities the one with a picture, and reports names the graph lacks.
     """
     global _IMAGE_MAP
 
@@ -405,6 +478,11 @@ def _resolve_image_url(message, graph, lbl_to_ent):
     
     # Noise Stripping
     noise_patterns = [
+        # chat around the request: "got a photo of X?", "... pls", "... thanks"
+        r'^\s*(?:(?:do|did)\s+(?:you|u)\s+)?(?:(?:you|u)\s+)?(?:got|have|has)\s+(?=(?:(?:a|an|any|some)\s+)?'
+        r'(?:picture|image|photo|pic|poster|headshot)s?\b)',
+        r'^\s*any\s+(?=(?:picture|image|photo|pic|poster|headshot)s?\b)',
+        r'[\s,]+(?:pls|plz|please|thanks|thank\s+you|thx|lol|haha|asap|real\s+quick)\W*$',
         r'\b(?:do\s+you\s+know|i\s+want\s+to\s+know|let\s+me\s+know|tell\s+me)\b',
         r'\b(?:can|could|would|will|may)\s+(?:you|i|we)\s+(?:please\s+)?(?:even\s+)?(?:just\s+)?',
         r'\b(?:i|we)\s+(?:want|would\s+like)\s+to\s+',
@@ -472,6 +550,12 @@ def _resolve_image_url(message, graph, lbl_to_ent):
                 resolved_movie_uri = movie_uri
                 final_map_type = 'backdrop_cast'  # Special handling below
 
+    # Same-name entities ("Toy Story" film, video game, remake): the one with a picture of the wanted kind
+    if not resolved_uri and linker is not None and target_map_type in ('poster', 'profile'):
+        want = {'person'} if target_map_type == 'profile' else {'film'}
+        resolved_uri = _with_image(graph, linker, entity_name, want, target_map_type)
+
+    tentative = False  # resolved, but not to the kind the question asks for
     # Fallback: Standard resolution if actor+movie not found
     if not resolved_uri:
         for cand in candidates:
@@ -519,11 +603,19 @@ def _resolve_image_url(message, graph, lbl_to_ent):
             # Let's stick to strict types for now to avoid bad matches, but allow fallback if nothing found.
             if not resolved_uri:
                 resolved_uri = uri # tentative match
+                tentative = True
 
     if not resolved_uri and candidates:
          # Last ditch: Try first candidate with loose typing
          uris = resolve_entity(graph, lbl_to_ent, candidates[0])
-         if uris: resolved_uri = uris[0]
+         if uris:
+             resolved_uri = uris[0]
+             tentative = True
+
+    # A loose match of a name the graph does not have ("Quentin Tarantino" -> a soundtrack titled after him)
+    if (not resolved_uri or tentative) and linker is not None and entity_name:
+        if not any(c.match in ("exact", "fuzzy") for c in linker.link(entity_name, limit=5)):
+            return None, f"The graph has no entity named {entity_name}, so I cannot show a picture of it."
 
     if not resolved_uri:
         return None, f"Could not identify the person or movie '{entity_name}'."
@@ -821,6 +913,9 @@ class Responser:
             title = extract_title(message) or message
             entity_uris = resolve_entity(graph, lbl_to_ent, title)
             entity_uris = _prioritize_film_entities(graph, entity_uris)
+            if not entity_uris and peek_linker(graph) is not None:
+                # the linker's index holds every label: the label scan below would find nothing either
+                return None, False, "Could not generate a factual answer."
 
             entity_found = bool(entity_uris)
             qid = _qid_from_uri(entity_uris[0]) if entity_uris else None
@@ -1017,10 +1112,24 @@ class Responser:
         res = {'relation': intent.relation, 'property_uri': str(prop_uri), 'entity_uri': best.uri,
                'cand': best, 'kind': best.kind, 'via_films': [], 'alternatives': [],
                'answer_uris': [], 'answer': None, 'sparql': None, 'inverse': False}
+        if best.kind == "film" and intent.year:
+            # "Titanic (1997)": no film of that name from that year -> say so, never another year's value
+            key = normalize(best.label)
+            same = [c for c in cands if c.kind == "film" and normalize(c.label) == key]
+            same += [c for c in linker.alternatives(best, limit=MAX_ALTERNATIVES) if c.uri not in {s.uri for s in same}]
+            if not any(c.year and abs(c.year - intent.year) <= YEAR_SLACK for c in same):
+                have = ", ".join(f"{c.label} ({c.year})" if c.year else c.label for c in same[:3])
+                res['alternatives'] = [c for c in same if c.uri != best.uri][:MAX_ALTERNATIVES]
+                res['answer'] = f"The graph has no film called {best.label} from {intent.year}; it has {have}."
+                res['gap'] = True
+                return res
         if best.kind == "film":
             # films with the same name are tried in order when the best one has no value
             key = normalize(best.label)
-            for c in [c for c in cands if c.kind == "film" and normalize(c.label) == key][:3]:
+            tries = [c for c in cands if c.kind == "film" and normalize(c.label) == key]
+            if intent.year:  # only the films of the year asked for
+                tries = [c for c in tries if c.year and abs(c.year - intent.year) <= YEAR_SLACK] or tries
+            for c in tries[:3]:
                 uris, labels, sparql = self._fact_for_film(graph, ent_to_lbl, c, prop_uri)
                 if c is best:
                     res['sparql'] = sparql
@@ -1030,6 +1139,11 @@ class Responser:
                     alts = self._alternatives(linker, c, cands)
                     res['alternatives'] = alts
                     text = self._forward_text(intent.relation, labels, c.label)
+                    if intent.count:  # "How many awards did X win?": the number first
+                        noun = COUNT_NOUNS.get(intent.relation, "values")
+                        if len(labels) == 1:
+                            noun = noun[:-3] + "y" if noun.endswith("ies") else noun[:-1]
+                        text = f"{c.label} has {len(labels)} {noun} in the graph. {text}"
                     if alts:
                         which = f"the {c.year} film" if c.year else f"the film {c.qid}"
                         text = text.rstrip() + f" (There are {len(alts) + 1} entries called {c.label}; this is {which}.)"
@@ -1040,6 +1154,14 @@ class Responser:
         films = linker.films_of_entity(best.uri)
         res['via_films'] = films
         res['alternatives'] = self._alternatives(linker, best, cands)
+        asks_films = bool(_ASKS_FILMS.search(message))
+        if intent.relation == "cast member" and (asks_films or best.kind == "character"):
+            # "Which movies feature Gandalf?": the films themselves; "Who played Jack Sparrow?": the
+            # character's performers (P175), else the honest "the graph does not say" text
+            ov = Filmography(graph, linker)._character(best, message, who=not asks_films)
+            if ov:
+                res.update(answer=ov.text, answer_uris=list(ov.answer_uris), via_films=[], overview=ov)
+                return res
         if not films:
             return res
         values = self._fact_via_films(graph, ent_to_lbl, films, prop_uri)
@@ -1054,6 +1176,18 @@ class Responser:
         if not cands:
             return None
         best = cands[0]
+        # a company "directs"/"makes"/"releases" through production company, whatever the wording
+        if best.kind == "company" and COMPANY_ROLE.get(intent.relation):
+            intent = copy.copy(intent)
+            intent.relation = COMPANY_ROLE[intent.relation]
+            prop_uri = rdflib.URIRef(WDT + ROLE_PROP[intent.relation])
+        # namesakes ("John Williams"): the first same-name entity credited through this property
+        if not any(True for _ in graph.subjects(prop_uri, rdflib.URIRef(best.uri))):
+            key = normalize(best.label)
+            for c in [c for c in cands[1:] if normalize(c.label) == key] + linker.alternatives(best, limit=MAX_ALTERNATIVES):
+                if any(True for _ in graph.subjects(prop_uri, rdflib.URIRef(c.uri))):
+                    best = c
+                    break
         genre_qid = GENRE_QIDS.get(intent.genre) if intent.genre else None
         genre_filter = f"?movie wdt:P136 wd:{genre_qid} ." if genre_qid else ""
         sparql = f"""
@@ -1071,6 +1205,10 @@ class Responser:
         # any film class counts (animated films are often typed only as Q202866)
         films = [r[0] for r in rows if isinstance(r[0], rdflib.URIRef) and linker.lbl.get(r[0])
                  and linker.kind_of(r[0]) == "film"]
+        lo, hi = intent.year_from, intent.year_to
+        if lo is not None or hi is not None:
+            films = [f for f in films if (y := linker._year(f)) is not None
+                     and (lo is None or y >= lo) and (hi is None or y <= hi)]
         # best-known films first: more triples, then title
         films.sort(key=lambda f: (-sum(1 for _ in graph.predicate_objects(f)), linker.lbl.get(f, "")))
         res = {'relation': intent.relation, 'property_uri': str(prop_uri), 'entity_uri': best.uri,
@@ -1085,6 +1223,9 @@ class Responser:
             more = len(films) - len(labels)
             if more > 0:
                 text = text.rstrip(".") + f", and {more} more."
+            if intent.count or intent.kind == "count":
+                text = f"{best.label} has {len(films)} film{'s' if len(films) != 1 else ''} as " \
+                       f"{intent.relation} in the graph. {text}"
             res['answer'] = text
         return res
 
@@ -1096,14 +1237,14 @@ class Responser:
         memo = {}
         results = []
         for sub in [intent] + list(intent.parts):
-            if not sub.relation or not sub.mention or sub.kind not in ("fact", "films_of"):
+            if not sub.relation or not sub.mention or sub.kind not in ("fact", "films_of", "count"):
                 results.append(None)
                 continue
             prop_uri = resolve_property_uri_from_local(pred_lbl_to_uri, sub.relation)
             if not prop_uri:
                 results.append(None)
                 continue
-            key = (sub.kind, sub.relation, sub.mention, sub.year, sub.genre)
+            key = (sub.kind, sub.relation, sub.mention, sub.year, sub.genre, sub.count, sub.year_from, sub.year_to)
             if key not in memo:
                 if sub.kind == "fact":
                     memo[key] = self._answer_fact(sub, graph, linker, ent_to_lbl, prop_uri, message)
@@ -1119,6 +1260,11 @@ class Responser:
         answered = [r for r in results if r and r.get('answer')]
         if not answered:
             return None, first
+        if not intent.parts and first.get('overview'):
+            text = self._use_overview(first['overview'], intent)
+            self.last_meta['alternatives'] = [{'uri': c.uri, 'qid': c.qid, 'label': c.label, 'year': c.year,
+                                               'kind': c.kind} for c in first['alternatives']]
+            return text, first
 
         sentences = []
         for sub, r in zip([intent] + list(intent.parts), results):
@@ -1136,6 +1282,7 @@ class Responser:
             entity_uri=lead['entity_uri'], relation=lead['relation'], property_uri=lead['property_uri'],
             inverse=lead['inverse'], sparql=lead['sparql'], answer_uris=uris,
             intent=intent.to_dict(), subject_kind=lead['kind'], via_films=list(lead['via_films']),
+            gap=all(r.get('gap') for r in answered),
             alternatives=[{'uri': c.uri, 'qid': c.qid, 'label': c.label, 'year': c.year, 'kind': c.kind}
                           for c in lead['alternatives']],
             parts=[{'relation': r['relation'] if r else s.relation,
@@ -1206,41 +1353,56 @@ class Responser:
         if rel_id is None:
             return None, None, "Relation not in embedding map."
 
+        # the facts the embeddings predict are film -> value: no guess for a person, company or country
+        linker = get_linker(graph, ent_to_lbl)
+        if linker.kind_of(head_uri) != "film":
+            return None, None, (f"Could not match this question to a film in the graph ('{title}' is not a film), "
+                                "so there is nothing to predict from.")
+
         self.last_meta['entity_uri'] = head_uri
         self.last_meta['relation'] = rel_label
         self.last_meta['property_uri'] = relation_uri
 
-        h = self.entity_embeds[head_id]
-        r = self.relation_embeds[rel_id]
-
-        t_target = h + r
-        scores = np.linalg.norm(t_target - self.entity_embeds, axis=1)
-        predicted_tail_id = int(np.argmin(scores))
-
-        predicted_tail_uri = self.id_to_ent_uri.get(predicted_tail_id) if self.id_to_ent_uri else None
-        if not predicted_tail_uri:
-            return None, None, "Predicted entity not found in URI map."
-
-        predicted_tail_uri_ref = rdflib.term.URIRef(predicted_tail_uri)
-
-        lbl = ent_to_lbl.get(predicted_tail_uri_ref) if ent_to_lbl else None
-        if not lbl:
-            lbl = _label_from_uri_strict(graph, predicted_tail_uri_ref)
-            if lbl and _QID_RE.match(lbl):
-                lbl = None  # the QID fallback is not a name
-
-        if not lbl:
-            qid = _qid_from_uri(predicted_tail_uri)
-            if qid:
-                lbl = qid_to_label(graph, qid)
-
-        entity_type = self._get_entity_type(graph, predicted_tail_uri_ref)
-
-        if not lbl:
+        guess = self._embedding_guess(graph, ent_to_lbl, head_uri, prop_uri)
+        if not guess:
             self.last_meta['answer_uris'] = []
-            return None, entity_type, "No answer: the prediction has no name in the graph."
+            return None, None, "No answer: the prediction has no name in the graph."
+        predicted_tail_uri, lbl = guess
+        entity_type = self._get_entity_type(graph, rdflib.URIRef(predicted_tail_uri))
         self.last_meta['answer_uris'] = [predicted_tail_uri]
         return lbl, entity_type, None
+
+    def _embedding_guess(self, graph, ent_to_lbl, head_uri, prop_uri):
+        """
+        TransE (h + r ≈ t): the nearest of the GUESS_NEIGHBOURS entities that is a plausible value of the
+        relation: named, not a film, and the value of this property for at least one film in the graph.
+        Returns (uri, label) or None.
+        """
+        if self.entity_embeds is None or self.relation_embeds is None:
+            return None
+        head_id = self.ent_uri_to_id.get(str(head_uri)) if self.ent_uri_to_id else None
+        rel_id = self.rel_uri_to_id.get(str(prop_uri)) if self.rel_uri_to_id else None
+        if head_id is None or rel_id is None:
+            return None
+        target = self.entity_embeds[head_id] + self.relation_embeds[rel_id]
+        dist = np.linalg.norm(self.entity_embeds - target, axis=1)
+        k = min(GUESS_NEIGHBOURS, len(dist))
+        near = np.argpartition(dist, k - 1)[:k]
+        near = near[np.argsort(dist[near], kind="stable")]
+        linker = get_linker(graph, ent_to_lbl)
+        prop = rdflib.URIRef(str(prop_uri))
+        for i in near:
+            uri = self.id_to_ent_uri.get(int(i)) if self.id_to_ent_uri else None
+            if not uri or uri == str(head_uri):
+                continue
+            ref = rdflib.URIRef(uri)
+            lbl = ent_to_lbl.get(ref) if ent_to_lbl else None
+            if not lbl or linker.kind_of(ref) == "film":
+                continue
+            if next(iter(graph.subjects(prop, ref)), None) is None:
+                continue  # never the value of this relation: a person guessed as an award, etc.
+            return uri, lbl
+        return None
 
     # ----- recommendation -----
 
@@ -1302,11 +1464,31 @@ class Responser:
         titles = [title for title, _ in recommendations]
         listed = titles[0] if len(titles) == 1 else ", ".join(titles[:-1]) + f" and {titles[-1]}"
         if seed_uris:
-            response = f"If you liked {self._and_list(seed_names or seed_labels)}, try {listed}."
+            cons = REC_LAST_RUN.get('constraints') or {}
+            desc = self._rec_filter_phrase(cons.get('genres'), cons.get('years'))
+            if desc:
+                response = f"If you liked {self._and_list(seed_names or seed_labels)}, try these {desc}: {listed}."
+            else:
+                response = f"If you liked {self._and_list(seed_names or seed_labels)}, try {listed}."
         else:
-            response = f"Based on your preferences, I recommend {listed}."
+            theme = REC_LAST_RUN.get('theme') or {}
+            desc = self._rec_filter_phrase(theme.get('genres'), theme.get('years'))
+            response = f"Some {desc} from the graph: {listed}." if desc else \
+                f"Based on your preferences, I recommend {listed}."
 
         return response, None
+
+    @staticmethod
+    def _rec_filter_phrase(genres, years):
+        """'comedy films', 'horror films from 1980 to 1989', or None when the list was not filtered.
+        Only the first genre is named: the others are its variants ("animated", "animation")."""
+        genres = [re.sub(r"\s+films?$", "", str(x)) for x in (genres or []) if x and not _QID_RE.match(str(x))][:1]
+        if not genres and not years:
+            return None
+        text = f"{genres[0]} films" if genres else "films"
+        if years and (years[0] is not None or years[1] is not None):
+            text += " " + _year_phrase(years[0], years[1])
+        return text
 
     @staticmethod
     def _and_list(items):
@@ -1329,7 +1511,7 @@ class Responser:
         self.last_meta = {
             'route': None, 'entity_uri': None, 'relation': None, 'property_uri': None,
             'inverse': False, 'sparql': None, 'answer_uris': [], 'seeds': [],
-            'recommendations': [], 'image': None, 'rewritten': None,
+            'recommendations': [], 'image': None, 'rewritten': None, 'gap': False,
             'intent': None, 'subject_kind': None, 'via_films': [], 'alternatives': [], 'parts': [],
         }
         original_message = message
@@ -1345,7 +1527,8 @@ class Responser:
         if is_multimedia_query(message):
             print("[responser] Detected multimedia query")
             self.last_meta['route'] = 'multimedia'
-            image_result, image_error = _resolve_image_url(message, graph, lbl_to_ent)
+            image_result, image_error = _resolve_image_url(message, graph, lbl_to_ent,
+                                                           linker=get_linker(graph, _ent_to_lbl))
             self.last_meta['image'] = dict(_LAST_IMAGE_META) or None
             if image_result:
                 return image_result
@@ -1382,9 +1565,10 @@ class Responser:
                 language_pref = None  # handled via factual path
 
         # Person/company-based pseudo-recommendations → factual queries
+        before_pseudo = message
         if (composer_rec_info := detect_composer_based_recommendation(message)):
             print(f"[responser] Detected composer-based recommendation: {composer_rec_info}")
-            composer_name = composer_rec_info.get('composer')
+            composer_name = _pseudo_name(composer_rec_info.get('composer'), original_message)
             genre = composer_rec_info.get('genre')
             if genre:
                 converted_query = f"Which {genre} movies did {composer_name} compose?"
@@ -1395,7 +1579,7 @@ class Responser:
 
         elif (writer_rec_info := detect_screenwriter_based_recommendation(message)):
             print(f"[responser] Detected screenwriter-based recommendation: {writer_rec_info}")
-            writer_name = writer_rec_info.get('screenwriter')
+            writer_name = _pseudo_name(writer_rec_info.get('screenwriter'), original_message)
             genre = writer_rec_info.get('genre')
             if genre:
                 converted_query = f"Which {genre} movies did {writer_name} write?"
@@ -1406,7 +1590,7 @@ class Responser:
 
         elif (director_rec_info := detect_director_based_recommendation(message)):
             print(f"[responser] Detected director-based recommendation: {director_rec_info}")
-            director_name = director_rec_info.get('director')
+            director_name = _pseudo_name(director_rec_info.get('director'), original_message)
             genre = director_rec_info.get('genre')
             if genre:
                 converted_query = f"Which {genre} movies did {director_name} direct?"
@@ -1417,7 +1601,7 @@ class Responser:
 
         elif (company_rec_info := detect_production_company_based_recommendation(message)):
             print(f"[responser] Detected company-based recommendation: {company_rec_info}")
-            company_name = company_rec_info.get('company')
+            company_name = _pseudo_name(company_rec_info.get('company'), original_message)
             genre = company_rec_info.get('genre')
             if genre:
                 converted_query = f"Which {genre} movies were produced by {company_name}?"
@@ -1428,7 +1612,7 @@ class Responser:
 
         elif (actor_rec_info := detect_actor_based_recommendation(message)):
             print(f"[responser] Detected actor-based recommendation: {actor_rec_info}")
-            actor_name = actor_rec_info.get('actor')
+            actor_name = _pseudo_name(actor_rec_info.get('actor'), original_message)
             genre = actor_rec_info.get('genre')
             if genre:
                 converted_query = f"Which {genre} movies has {actor_name} as cast member?"
@@ -1437,6 +1621,15 @@ class Responser:
             print(f"[responser] Converted to factual query: {converted_query}")
             message = converted_query
 
+        if message != before_pseudo:
+            if not _REC_REQUEST.search(original_message):
+                # "Movies directed by Spielberg in the 80s" asks for films, not suggestions: the intent
+                # path reads it whole (the rewrite would drop the years)
+                print("[responser] No request wording: the question is kept as asked")
+                message = before_pseudo
+            elif (ph := years_of(original_message)) and not years_of(message):
+                message = message.rstrip("?") + f" {ph[2]}?"   # keep "from the 1980s" in the rewrite
+
         # Recommendation questions (real recs, not pseudo-factual)
         if message != original_message:
             self.last_meta['rewritten'] = message
@@ -1444,7 +1637,7 @@ class Responser:
         # "List the movies of Daniel Radcliffe" / "Give me Tom Hanks movies" read like a request for
         # films but name a person and no seed film: a filmography, not a recommendation
         wants_recs = is_recommendation_question(message)
-        if wants_recs and not _SIMILARITY_CUE.search(message):
+        if wants_recs and not has_similarity_cue(message) and not is_theme_request(message):
             if Filmography(graph, get_linker(graph, _ent_to_lbl)).entities(message):
                 print("[responser] Recommendation wording around a person: answering with the filmography")
                 wants_recs = False
@@ -1484,7 +1677,24 @@ class Responser:
             # 1) intent + linker
             intent = parse_intent(message)
             linker = get_linker(graph, _ent_to_lbl)
-            if intent.kind in ("fact", "films_of") and intent.relation and intent.confidence >= USE_THRESHOLD:
+            fm = Filmography(graph, linker)
+            # 1a) films of someone with a year range, genre or count: the filmography applies them all
+            if intent.kind in ("films_of", "count") and not intent.parts and self._has_filters(intent, message):
+                # the parser's range when it read one; else the filmography reads the wording itself
+                years = None
+                if intent.year_from or intent.year_to:
+                    span = years_of(message)   # same reader: keeps the wording's phrase ("after 2012")
+                    years = span if span and span[:2] == (intent.year_from, intent.year_to) else \
+                        (intent.year_from, intent.year_to)
+                ov = fm.answer(message, film_overview=False, role=intent.relation if role_of(message) else None,
+                               genre=intent.genre, years=years, count=(intent.count or intent.kind == "count") or None)
+                if ov:
+                    print(f"[responser] Filtered filmography: {ov.relation} / {ov.entity_uri} / {ov.filters}")
+                    factual_result = self._use_overview(ov, intent)
+                    self.last_meta['filters'] = dict(ov.filters)
+                    entity_found, factual_error = True, None
+            if (not factual_result and intent.kind in ("fact", "films_of", "count") and intent.relation
+                    and intent.confidence >= USE_THRESHOLD):
                 factual_result, linked = self._answer_intent(
                     intent, graph, linker, _ent_to_lbl, pred_lbl_to_uri, message)
                 if factual_result:
@@ -1493,23 +1703,35 @@ class Responser:
                     # "Tom Hanks filmography" / "Daniel Radcliffe's films" name no role: the default
                     # (director) would hide an actor's films, so list every role instead
                     if intent.kind == "films_of" and not intent.parts and role_of(message) is None:
-                        ov = Filmography(graph, linker).answer(message)
+                        ov = fm.answer(message)
+                        if ov is None and linked and linked['kind'] in FILMS_OF_KINDS:
+                            ov = fm._person(linked['cand'], None)  # a typo'd name only the intent path linked
                         if ov:
                             factual_result = self._use_overview(ov, intent)
             # 1b) a person, company or film named in wording the parser does not cover (not when the
             #     intent path already linked a film whose value is missing: that goes to the prediction)
             if not factual_result and not (linked and linked.get('kind') == 'film'):
-                ov = Filmography(graph, linker).answer(message, film_overview=intent.kind == "unknown")
+                # shared films: the role the parser read for each name ("X made with Y": Y as cast)
+                roles = None
+                if intent.kind == "shared" and role_of(message):
+                    roles = {p.mention: p.relation for p in [intent] + list(intent.parts) if p.mention}
+                ov = fm.answer(message, film_overview=intent.kind == "unknown", roles=roles)
                 if ov:
                     print(f"[responser] Answered through filmography: {ov.relation} / {ov.entity_uri}")
                     factual_result = self._use_overview(ov, intent)
                     entity_found, factual_error = True, None
-            # 2) the old regex path
+            # 2) the old regex path; when the intent path linked a film, only an answer about that film
+            #    with named values counts (not "Q3772", not another film of a similar title)
             if not factual_result:
+                saved = dict(self.last_meta)
                 factual_result, entity_found, factual_error = self._generate_factual_response(
                     message, graph, lbl_to_ent, pred_lbl_to_uri
                 )
                 entity_found = entity_found or bool(linked)
+                if factual_result and not self._old_answer_ok(linked, _ent_to_lbl):
+                    print("[responser] Old path answer dropped (unnamed values or another entity)")
+                    self.last_meta = saved
+                    factual_result = None
             factual_time = time.time() - factual_start
             print(f"[responser] Factual query took {factual_time:.3f}s")
 
@@ -1531,6 +1753,30 @@ class Responser:
                         f"{linked['relation']} in the graph.")
             return f"{label} is not a film itself, and the graph links it to no film."
 
+        # A film the intent path linked has no (named) value for the relation: say so; the embeddings may
+        # add a guess as a note, never as the answer
+        if linked and linked['kind'] == 'film':
+            text = self._film_gap(intent, linked, graph, _ent_to_lbl)
+            print(f"[responser] Total response time: {time.time() - start_time:.3f}s")
+            return text
+        # A person or company with no film through the property asked
+        if linked and linked['kind'] in FILMS_OF_KINDS:
+            self._note_linked(intent, linked)
+            print(f"[responser] Total response time: {time.time() - start_time:.3f}s")
+            return f"The graph lists no film with {linked['cand'].label} as {linked['relation']}."
+        # Nothing linked: a capitalized name the graph does not have ("Quentin Tarantino", unlabeled)
+        if not linked and not language_qid:
+            names = [intent.mention] if intent.kind in ("films_of", "count", "shared") else []
+            if _FILMS_WORD.search(message):
+                names.append(fm._rest(message))   # "will smith movies": the words left around the film noun
+            ov = fm.missing(message, names=names)
+            if ov:
+                print(f"[responser] Missing name: {ov.filters.get('missing')}")
+                print(f"[responser] Total response time: {time.time() - start_time:.3f}s")
+                text = self._use_overview(ov, None)
+                self.last_meta['relation'] = intent.relation or parse_relation(message)  # what was asked
+                return text
+
         embeddings_available = self.entity_embeds is not None and self.relation_embeds is not None
 
         if not embeddings_available:
@@ -1551,11 +1797,8 @@ class Responser:
             print("[responser] Entity not found in KG, trying embedding-based approach")
 
         self.last_meta['route'] = 'prediction'
-        # Head entity from the linker when it linked something; else the old title lookup
-        head = (linked['entity_uri'], linked['cand'].label) if linked else None
-        head_rel = linked['relation'] if linked else None
-        if linked:
-            self._note_linked(intent, linked)
+        # Nothing linked (linked answers returned above): the old title lookup gives the head
+        head, head_rel = None, None
         embedding_start = time.time()
         embedding_result, entity_type, embedding_error = self._generate_embedding_response(
             message, graph, _ent_to_lbl, lbl_to_ent, pred_lbl_to_uri, head=head, rel_label=head_rel
@@ -1596,13 +1839,59 @@ class Responser:
             return embedding_error
         return "Could not generate an answer. Please rephrase your question in a simple way."
 
+    @staticmethod
+    def _has_filters(intent, message) -> bool:
+        """A films question with a year range, genre or count the plain intent answer would not apply.
+        Genre and year words inside the subject's name ("Walt Disney Animation Studios") do not count."""
+        if intent.genre or intent.year_from or intent.year_to or intent.count or intent.kind == "count":
+            return True
+        rest = mask_names(message, [p.mention for p in [intent] + list(intent.parts) if p.mention])
+        return bool(genre_of(rest) or years_of(rest))
+
+    def _old_answer_ok(self, linked, ent_to_lbl) -> bool:
+        """An old regex path answer counts only with named values and, after the intent path linked a film,
+        only about that film or a film of the same name."""
+        uris = [u for u in self.last_meta.get('answer_uris') or [] if u]
+        if uris and not any(ent_to_lbl.get(rdflib.URIRef(u)) for u in uris):
+            return False  # only bare Q-IDs
+        if linked and linked['kind'] == 'film':
+            ent = self.last_meta.get('entity_uri')
+            same = {linked['entity_uri']} | {c.uri for c in linked['alternatives']}
+            if ent and ent not in same:
+                return False
+        return True
+
+    def _film_gap(self, intent, linked, graph, ent_to_lbl) -> str:
+        """'The graph has no director for Galaxy Quest (1999).' plus a TransE guess as a note when one is plausible."""
+        c = linked['cand']
+        rel = linked['relation']
+        self._note_linked(intent, linked)
+        name = f"{c.label} ({c.year})" if c.year else c.label
+        noun = GAP_NOUNS.get(rel, rel)
+        prop = rdflib.URIRef(linked['property_uri'])
+        unnamed = [o for o in graph.objects(rdflib.URIRef(c.uri), prop)
+                   if isinstance(o, rdflib.URIRef) and not ent_to_lbl.get(o)]
+        if unnamed:
+            qids = ", ".join(_qid_from_uri(o) or str(o) for o in unnamed[:3])
+            if len(unnamed) == 1:
+                return f"{name} has a {noun} in the graph ({qids}), but the graph has no name for it."
+            return f"{name} has {len(unnamed)} {noun}s in the graph ({qids}), but the graph has no name for them."
+        text = f"The graph has no {noun} for {name}."
+        guess = self._embedding_guess(graph, ent_to_lbl, c.uri, prop)
+        if guess:
+            self.last_meta['route'] = 'prediction'
+            self.last_meta['prediction'] = {'uri': guess[0], 'label': guess[1]}
+            text += (f" (Note: The closest guess of the graph embeddings is {guess[1]}; "
+                     "this is a prediction, not a fact from the graph.)")
+        return text
+
     def _use_overview(self, ov, intent):
         """Fill last_meta from a filmography/overview answer and return its text."""
         self.last_meta.update(
             entity_uri=ov.entity_uri, relation=ov.relation, property_uri=ov.property_uri,
             inverse=ov.inverse, sparql=ov.sparql, answer_uris=list(ov.answer_uris),
             intent=intent.to_dict() if intent else None, subject_kind=ov.kind,
-            via_films=[], alternatives=[], parts=[], compact=True,
+            via_films=[], alternatives=[], parts=[], compact=True, gap=not ov.answer_uris,
         )
         return ov.text
 
@@ -1612,7 +1901,7 @@ class Responser:
         self.last_meta.update(
             entity_uri=c.uri, relation=linked['relation'], property_uri=linked['property_uri'],
             inverse=linked['inverse'], intent=intent.to_dict() if intent else None,
-            subject_kind=c.kind, via_films=list(linked['via_films']), answer_uris=[],
+            subject_kind=c.kind, via_films=list(linked['via_films']), answer_uris=[], gap=True,
             alternatives=[{'uri': a.uri, 'qid': a.qid, 'label': a.label, 'year': a.year, 'kind': a.kind}
                           for a in linked['alternatives']],
         )

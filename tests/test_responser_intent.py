@@ -117,6 +117,19 @@ link("F9", "P57", "Q999")  # a director without any label
 g.add((e("H12"), RDFS.label, Literal("Untagged Writer")))  # label without a language tag, as in data/graph.nt
 g.add((e("H12"), p("P31"), e("Q5")))
 link("F1", "P58", "H12")
+link("F10", "P58", "H11")  # Danny Elfman also wrote a film: a plausible screenwriter guess
+# for the year, namesake, count and picture checks
+ent("F12", "Ocean Tale", "Q11424", "1953-04-11")
+link("F12", "P57", "H5")
+ent("H13", "Sam Lee", "Q5")       # an actor ...
+ent("H14", "Sam Lee", "Q5")       # ... and a director of the same name
+link("F2", "P161", "H13")
+link("F1", "P161", "H13")
+link("F8", "P57", "H14")
+ent("Q166", "Golden Bear", "Q618779")
+link("F4", "P166", "Q166")
+ent("Q167", "Silver Bear", "Q618779")
+link("F4", "P166", "Q167")
 
 # TransE embeddings: F9 + r(P58) lands on Danny Elfman, F9 + r(P86) on the unnamed Q999
 ent_uris = [str(e(q)) for q in ("F9", "Q999", "H11", "F1", "F4", "C2")]
@@ -265,26 +278,123 @@ check("old path: subject_kind filled", m["subject_kind"] == "film", m["subject_k
 
 a, m = ask(plain, "Who directed Blorptastic Quest Nine?")
 check("unlinked: no intent answer", m["intent"] is None, (a, m["intent"]))
+check("unlinked: the missing name is reported", "graph has no entity named Blorptastic Quest Nine" in a
+      and m["gap"] and m["answer_uris"] == [], (a, m["gap"]))
+check("unlinked: the relation asked is kept", m["relation"] == "director", m["relation"])
 
+# a linked film without the value: the gap first, the embedding guess only as a note
 a, m = ask(embed, "Who wrote Mystery Movie?")
 check("TransE: head from linker", m["route"] == "prediction" and m["entity_uri"] == str(e("F9")), (m["route"], m["entity_uri"]))
-check("TransE: named prediction", "Danny Elfman" in a and "prediction" in a, a)
+check("TransE: gap first", a.startswith("The graph has no screenwriter for Mystery Movie (1999)."), a)
+check("TransE: named guess as a note", "(Note:" in a and "Danny Elfman" in a and "prediction" in a, a)
+check("TransE: guess has no card", m["answer_uris"] == [] and m["gap"], (m["answer_uris"], m["gap"]))
 check("TransE: subject_kind", m["subject_kind"] == "film", m["subject_kind"])
 check("TransE: intent dict", isinstance(m["intent"], dict), m["intent"])
 
 a, m = ask(embed, "Who composed the music for Mystery Movie?")
-check("TransE: unnamed prediction refused", a == "No answer: the prediction has no name in the graph.", a)
+check("TransE: unnamed nearest entity skipped", a.startswith("The graph has no composer for Mystery Movie (1999).")
+      and "Q999" not in a, a)
+check("TransE: guess is a credited composer", "Danny Elfman" in a, a)
 check("TransE: no answer uris", m["answer_uris"] == [], m["answer_uris"])
-check("TransE: no bare QID", "Q999" not in a, a)
+
+# the guess must be a value of the relation somewhere: Danny Elfman directed nothing
+E_dir = Responser(E, R, ent_ids, rel_ids, id_to_ent)
+a, m = ask(E_dir, "Who directed Interstellar?")
+check("TransE not used when the graph has the value", "Christopher Nolan" in a and m["route"] == "factual", a)
+a, m = ask(embed, "Who directed Mystery Movie?")
+check("unnamed value: says the graph has no name", "has a director in the graph (Q999)" in a
+      and "no name" in a and "Note:" not in a, a)
+check("unnamed value: no card, gap", m["answer_uris"] == [] and m["gap"], (m["answer_uris"], m["gap"]))
+a, m = ask(plain, "Who is the cinematographer of Inception?")
+check("no value, no embeddings: specific gap", a == "The graph has no cinematographer for Inception (2010).", a)
+a, m = ask(plain, "What awards did Interstellar win?")
+check("no award: award noun", a == "The graph has no award for Interstellar (2014).", a)
+
+# --- year that no film of that name has ---
+a, m = ask(plain, "Who directed Ocean Tale (1997)?")
+check("year miss: says so", a.startswith("The graph has no film called Ocean Tale from 1997; it has Ocean Tale (1953)"), a)
+check("year miss: no value of another year", "Michael Mann" not in a and m["answer_uris"] == [] and m["gap"], a)
+a, m = ask(plain, "Who directed the 1953 Ocean Tale?")
+check("year hit: answer", "Michael Mann" in a and not m["gap"], a)
+a, m = ask(plain, "Who directed Heat (1996)?")
+check("year off by one still counts", "Michael Mann" in a, a)
+
+# --- counts on the intent path ---
+a, m = ask(plain, "How many awards did Inception win?")
+check("fact count: number first", a.startswith("Inception has 2 awards in the graph.") and "Golden Bear" in a, a)
+
+# --- namesakes: the one credited in the role asked ---
+a, m = ask(plain, "Which films did Sam Lee direct?")
+check("namesake with the role", "Hero Film" in a and m["entity_uri"] == str(e("H14")), (a, m["entity_uri"]))
+
+# --- films of a character, not its cast ---
+a, m = ask(plain, "Which movies feature Captain Jack Sparrow?")
+check("character films: titles", "Pirates One" in a and "Pirates Two" in a and "Hans Zimmer" not in a, a)
+check("character films: cards are the films", set(m["answer_uris"]) == {str(e("F6")), str(e("F7"))}, m["answer_uris"])
+check("character films: compact", m.get("compact") is True, m.get("compact"))
+
+# --- year range on the intent path ---
+a, m = ask(plain, "Which movies did Christopher Nolan direct after 2012?")
+check("year range: filtered", "Interstellar" in a and "Inception" not in a, a)
+check("year range: the wording's phrase is kept", "after 2012" in a, a)
+
+# --- old path entity lookup through the linker's index (no label scans) ---
+from core.entity import resolve_entity  # noqa: E402
+check("resolve: case-insensitive exact", resolve_entity(g, {}, "good WILL hunting") == [e("F1")])
+check("resolve: substring of a label", e("C1") in resolve_entity(g, {}, "Jack Sparrow"))
+check("resolve: unknown word gives nothing", resolve_entity(g, {}, "Zorbleflax Returns") == [])
 
 # --- other routes unchanged ---
 a, m = ask(plain, "Show me a picture of Matt Damon")
 check("multimedia route", m["route"] == "multimedia" and m["intent"] is None, (m["route"], m["intent"]))
+for q in ("I want to see Matt Damon", "Show me Robin Williams", "Heat poster", "Let me see Gus Van Sant"):
+    a, m = ask(plain, q)
+    check(f"picture wording [{q}]", m["route"] == "multimedia", (m["route"], a))
+for q in ("show me movies with Matt Damon", "Show me some comedies", "Matt Damon movies", "Did you see Inception?",
+          "Have you seen Heat?"):
+    a, m = ask(plain, q)
+    check(f"not a picture [{q}]", m["route"] != "multimedia", (m["route"], a))
+a, m = ask(plain, "Show me a picture of Quorble Vantastic")
+check("picture of a name the graph lacks", "graph has no entity named Quorble Vantastic" in a
+      and not m["image"], (a, m["image"]))
+
+# same-name films: the one with a poster
+responser._IMAGE_MAP["poster"]["tt0002"] = "0001/poster2.jpg"
+g.add((e("F3"), p("P345"), Literal("tt0002")))
+a, m = ask(plain, "poster for Heat")
+check("poster of the same-name film that has one", a == "image:0001/poster2" and m["image"]["entity_uri"] == str(e("F3")),
+      (a, m["image"]))
 try:
     a, m = ask(plain, "Recommend movies similar to Inception")
     check("recommendation route", m["route"] == "recommendation" and m["intent"] is None, (m["route"], m["intent"]))
 except Exception as exc:  # the recommender may need data files; the route is what matters here
     check("recommendation route", plain.last_meta.get("route") == "recommendation", repr(exc))
+
+# the tiny graph gives the recommender nothing to rank, so the trace shows the route taken
+for q in ("something in the style of Christopher Nolan", "good westerns please", "fans of Christopher Nolan, what now?"):
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            plain.generate_response(q, g)
+    except Exception:  # the recommender may need data files; the route is what matters here
+        pass
+    trace = buf.getvalue()
+    check(f"recommendation, not a filmography [{q}]", "Detected recommendation question" in trace
+          and "answering with the filmography" not in trace.split("Detected recommendation")[0], trace[-300:])
+# "Movies directed by X" with years is a filmography question, not a pseudo-recommendation to rewrite
+a, m = ask(plain, "Movies directed by Christopher Nolan after 2012")
+check("no request word: years kept", "Interstellar" in a and "Inception" not in a and m["rewritten"] is None,
+      (a, m["rewritten"]))
+check("pseudo name: capitalized words only", responser._pseudo_name("Spielberg in the", "Recommend Spielberg in the 80s")
+      == "Spielberg" and responser._pseudo_name("Guillermo del Toro", "Films by Guillermo del Toro") == "Guillermo del Toro")
+
+check("rec filter phrase: genre + decade",
+      Responser._rec_filter_phrase(["horror film"], (1980, 1989)) == "horror films from 1980 to 1989")
+check("rec filter phrase: none", Responser._rec_filter_phrase([], None) is None)
+check("rec filter phrase: QIDs dropped", Responser._rec_filter_phrase(["Q123"], (None, 2000)) == "films until 2000")
+
+a, m = ask(plain, "Christopher Nolan movies")
+check("person + films stays a filmography", m["route"] == "factual" and "Inception" in a, (m["route"], a))
 
 total = passed + failed
 print(f"\n{passed}/{total} passed")

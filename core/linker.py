@@ -17,6 +17,10 @@ WD = "http://www.wikidata.org/entity/"
 P31 = URIRef("http://www.wikidata.org/prop/direct/P31")
 P577 = URIRef("http://www.wikidata.org/prop/direct/P577")
 Q_HUMAN = URIRef(WD + "Q5")
+# predicates that refer to an entity without making a film part of it: instance of, references
+# work, cites work, different from, said to be the same as, see also, derivative work, inspired by
+NOT_MEMBER = frozenset(URIRef("http://www.wikidata.org/prop/direct/" + p)
+                       for p in ("P31", "P8371", "P2860", "P1889", "P460", "P1659", "P4969", "P941"))
 
 # P31 class -> kind, from the P31 counts of data/graph.nt (counts in brackets).
 # Labels marked (n/a) have no rdfs:label in the graph; the name is the Wikidata one.
@@ -71,6 +75,14 @@ KIND_ORDER = ("film", "person", "character", "series", "company")
 # Class labels containing these words map to a kind when the class is not in CLASS_KIND.
 LABEL_WORDS = (("character", "character"), ("series", "series"), ("franchise", "series"),
                ("company", "company"), ("studio", "company"))
+# Kind from use when no class maps (many classes have no label, e.g. animation studio Q1107679):
+# the object of a film's property, first matching rule wins.
+USE_KIND = (
+    (("P272", "P750"), "company"),
+    (("P674",), "character"),
+    (("P179",), "series"),
+)
+USE_KIND = tuple((tuple(URIRef("http://www.wikidata.org/prop/direct/" + p) for p in ps), k) for ps, k in USE_KIND)
 
 # Ranking: score = 1000*kind_ok + tier + 500*year_ok + 10*ln(1+degree) (+ 50*ratio for fuzzy).
 # A tier (exact 300 > span 200 > fuzzy 100) outweighs any popularity (10*ln(1+degree) < 150).
@@ -81,13 +93,29 @@ TIER = {"exact": 300.0, "span": 200.0, "fuzzy": 100.0}
 W_FUZZY = 50.0
 # A subset match (all mention tokens inside a longer label) ranks just under a contained span.
 SUBSET_PENALTY = 20.0
+# A span of the mention that covers only part of its words loses up to this much, so a close
+# typo match of the whole mention ("Tom Hanx" -> Tom Hanks) beats a bare "Tom".
+PARTIAL_PENALTY = 150.0
+# A kind read from use (no class) is a weaker claim: a classed entity of the same name and kind wins
+# ("The Lord of the Rings" film trilogy over the novel that one film names as its series)
+BY_USE_PENALTY = 90.0
 
 MAX_NGRAM = 8
 FUZZY_RATIO = 0.85
+# Looser ratio when the words line up one to one, each starts with the same letter and is
+# close on its own ("Tom Hanx", "Duvid Fancher", "pixer")
+ALIGNED_RATIO = 0.8
+ALIGNED_TOKEN_RATIO = 0.65   # "hanx"/"hanks" 0.67
 MAX_PER_KEY = 60          # entities ranked per index key
-MAX_RARE_TRIGRAMS = 4
+MAX_RARE_TRIGRAMS = 8     # the rarest trigrams are often the misspelled ones: vote with more
 MAX_POSTING = 4000        # trigram postings longer than this are too common to use
+MAX_POSTING_FALLBACK = 20000
+MIN_VOTE_GRAMS = 5
 MAX_FUZZY_KEYS = 40
+# A mention word used in at least this many labels is a real word, not a typo: it may change by one edit
+# at most ("hank" -> "hanks", not "will" -> "willow"/"billy"), and a one-word mention made of it is not
+# fuzzy-matched at all ("kids" -> "gkids")
+KNOWN_WORD_LABELS = 3
 
 STOP = frozenset("the a an of and in on at to for by with is was who what which when where how did does do "
                  "movie movies film films".split())
@@ -96,18 +124,59 @@ _SMART = str.maketrans({"“": '"', "”": '"', "„": '"', "‘": "'", "’": "
 _NON_ALNUM = re.compile(r"[^a-z0-9\s]")
 _SPACES = re.compile(r"\s+")
 _ARTICLE = re.compile(r"^(?:the|a|an)\s+")
+_INITIAL = re.compile(r"^\s*a\s*\.")   # "A. Jones": an initial, not an article
 _TAIL = re.compile(r"\s+(?:movies|films|movie|film)$")
 
 
 def normalize(text: str) -> str:
-    """Lower case, smart quotes plain, '&' -> 'and', accents folded, punctuation dropped, leading article dropped."""
-    t = text.translate(_SMART).lower().replace("&", " and ")
+    """Lower case, smart quotes plain, '&' -> 'and', '+' -> 'plus', accents folded, punctuation dropped,
+    leading article dropped."""
+    t = text.translate(_SMART).lower().replace("&", " and ").replace("+", " plus ")
+    initial = bool(_INITIAL.match(t))
     t = unicodedata.normalize("NFKD", t)
     t = "".join(c for c in t if not unicodedata.combining(c))
     t = t.replace("'", "")
     t = _NON_ALNUM.sub(" ", t)
     t = _SPACES.sub(" ", t).strip()
-    return _ARTICLE.sub("", t)
+    return t if initial else _ARTICLE.sub("", t)
+
+
+def _aligned(a: str, b: str) -> bool:
+    """Same number of words, each pair with the same first letter and close on its own."""
+    ta, tb = a.split(), b.split()
+    if len(ta) != len(tb):
+        return False
+    for x, y in zip(ta, tb):
+        if x == y:
+            continue
+        if x[0] != y[0] or len(x) < 4 or SequenceMatcher(None, x, y).ratio() < ALIGNED_TOKEN_RATIO:
+            return False
+    return True
+
+
+def _one_edit(a: str, b: str) -> bool:
+    """a and b differ by one insertion, deletion, substitution or swap of neighbours."""
+    if a == b or abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) == len(b):
+        diff = [i for i in range(len(a)) if a[i] != b[i]]
+        return len(diff) == 1 or (len(diff) == 2 and diff[1] == diff[0] + 1
+                                  and a[diff[0]] == b[diff[1]] and a[diff[1]] == b[diff[0]])
+    if len(a) > len(b):
+        a, b = b, a
+    i = 0
+    while i < len(a) and a[i] == b[i]:
+        i += 1
+    return a[i:] == b[i + 1:]
+
+
+def _coverage(mention_key: str, label: str) -> float:
+    """Share of the mention's content words that occur in the label."""
+    toks = [t for t in mention_key.split() if t not in STOP]
+    if not toks:
+        return 1.0
+    lt = set(normalize(label).split())
+    return sum(t in lt for t in toks) / len(toks)
 
 
 def _variants(key: str):
@@ -144,6 +213,7 @@ class EntityLinker:
         self.g = graph
         self.lbl = ent_to_lbl
         self._kind_cache: dict = {}
+        self._by_use: set = set()     # entities whose kind came from use, not from a class
         self._class_kind: dict = {}
         self._info_cache: dict = {}
         self._build()
@@ -202,9 +272,21 @@ class EntityLinker:
         if cached is not None:
             return cached
         kinds = {self._kind_of_class(c) for c in self.g.objects(uri, P31)}
-        kind = next((k for k in KIND_ORDER if k in kinds), "other")
+        kind = next((k for k in KIND_ORDER if k in kinds), None)
+        if kind is None:
+            kind = self._kind_by_use(uri)
+            if kind != "other":
+                self._by_use.add(uri)
         self._kind_cache[uri] = kind
         return kind
+
+    def _kind_by_use(self, uri) -> str:
+        """Kind of an entity whose classes map to none: from the film properties pointing at it."""
+        for props, kind in USE_KIND:
+            for p in props:
+                if any(True for _ in self.g.subjects(p, uri)):
+                    return kind
+        return "other"
 
     def _year(self, uri) -> int | None:
         years = []
@@ -230,6 +312,8 @@ class EntityLinker:
         score = TIER[match] - penalty + W_DEGREE * math.log1p(degree)
         if want and kind in want:
             score += W_KIND
+            if URIRef(str(uri)) in self._by_use:
+                score -= BY_USE_PENALTY
         if year is not None and fyear == year:
             score += W_YEAR
         if match == "fuzzy":
@@ -306,10 +390,15 @@ class EntityLinker:
         if len(key) < 4:
             return []
         grams = {key[j:j + 3] for j in range(len(key) - 2)}
-        posts = [(len(self.tri[g]), g) for g in grams if g in self.tri and len(self.tri[g]) <= MAX_POSTING]
+        posts = sorted((len(self.tri[g]), g) for g in grams if g in self.tri)
+        # rare trigrams first; common ones fill up to MIN_VOTE_GRAMS when a short or typo'd mention
+        # has few rare ones left ("tom hanx")
+        rare = [p for p in posts if p[0] <= MAX_POSTING]
+        if len(rare) < MIN_VOTE_GRAMS:
+            rare = [p for p in posts if p[0] <= MAX_POSTING_FALLBACK][:MIN_VOTE_GRAMS]
+        posts = rare
         if not posts:
             return []
-        posts.sort()
         votes = defaultdict(int)
         for _, g in posts[:MAX_RARE_TRIGRAMS]:
             for i in self.tri[g]:
@@ -324,10 +413,11 @@ class EntityLinker:
             if abs(len(k) - len(key)) > max(3, len(key) // 4):
                 continue
             sm.set_seq1(k)
-            if sm.real_quick_ratio() < FUZZY_RATIO or sm.quick_ratio() < FUZZY_RATIO:
+            if sm.real_quick_ratio() < ALIGNED_RATIO or sm.quick_ratio() < ALIGNED_RATIO:
                 continue
             r = sm.ratio()
-            if r >= FUZZY_RATIO:
+            if (r >= FUZZY_RATIO or (r >= ALIGNED_RATIO and len(key) >= 5 and _aligned(key, k))) \
+                    and not self._other_word(key, k):
                 scored.append((r, k))
         scored.sort(reverse=True)
         out = []
@@ -335,6 +425,19 @@ class EntityLinker:
             for u in self._pick(self.index[k]):
                 out.append(self._cand(u, "fuzzy", r, want, year))
         return out
+
+    def _other_word(self, key: str, label_key: str) -> bool:
+        """The fuzzy label replaces a real word of the mention by another word, not a typo of it:
+        "will smith" -> "willow smith" or "billy smith", "kids" -> "gkids". Only for word-aligned pairs."""
+        ta, tb = key.split(), label_key.split()
+        if len(ta) != len(tb):
+            return False
+        for x, y in zip(ta, tb):
+            if x == y or len(self.tok.get(x, ())) < KNOWN_WORD_LABELS:
+                continue
+            if len(ta) == 1 or not _one_edit(x, y):
+                return True
+        return False
 
     # ---- public API ----
     def link(self, mention: str, want: set | None = None, year: int | None = None,
@@ -347,11 +450,19 @@ class EntityLinker:
             found += self._surname(mention, want, year)
         if not ok(found):
             found += self._subset(mention, want, year)
+        partial = False
         if not ok(found):
-            found += self._spans(mention, want, year)
+            spans = self._spans(mention, want, year)
+            key = normalize(mention)
+            for c in spans:
+                cov = _coverage(key, c.label)
+                if cov < 1.0:
+                    c.score -= PARTIAL_PENALTY * (1.0 - cov)
+                    partial = True
+            found += spans
         if not ok(found) and question:
             found += self._spans(question, want, year)
-        if not ok(found):
+        if not ok(found) or (partial and not any(c.match == "exact" for c in found)):
             found += self._fuzzy(mention, want, year)
         return self._rank(found, limit)
 
@@ -367,14 +478,14 @@ class EntityLinker:
         return sorted(best.values(), key=lambda c: (-c.score, c.label))[:limit]
 
     def films_of_entity(self, uri) -> list[str]:
-        """Film URIs joined to a non-film entity by any predicate, either direction."""
+        """Film URIs joined to a non-film entity by any predicate but a reference one, either direction."""
         uri = URIRef(str(uri))
         seen = {}
         for p, o in self.g.predicate_objects(uri):
-            if p != P31 and isinstance(o, URIRef) and o not in seen and self.kind_of(o) == "film":
+            if p not in NOT_MEMBER and isinstance(o, URIRef) and o not in seen and self.kind_of(o) == "film":
                 seen[o] = None
         for s, p in self.g.subject_predicates(uri):
-            if p != P31 and isinstance(s, URIRef) and s not in seen and self.kind_of(s) == "film":
+            if p not in NOT_MEMBER and isinstance(s, URIRef) and s not in seen and self.kind_of(s) == "film":
                 seen[s] = None
         films = list(seen)
         films.sort(key=lambda f: (self._year(f) is None, self._year(f) or 0, self.lbl.get(f, "")))

@@ -205,7 +205,8 @@ def build_reply(message: str, answer: str, meta: Dict[str, Any], trace_raw: str,
             "label": info.get("entity_label"),
         }
         text = ""
-    ok = bool(image) or not text.lower().startswith(_MISS_PREFIXES)
+    # meta "gap": the agent says what the graph lacks ("The graph has no director for X") instead of answering
+    ok = bool(image) or not (text.lower().startswith(_MISS_PREFIXES) or meta.get("gap"))
     note = None
     if route == "prediction":
         m = re.search(r"\s*\(Note: (.*)\)\s*$", text)
@@ -336,6 +337,7 @@ def _title_guess(message: str) -> Optional[str]:
 
 
 _LIST_HEAD = re.compile(r"^(.+?)\s+(?:include|includes|are|were)\s+\S")
+_COUNT_HEAD = re.compile(r"^([^.]*?\bhas \d+ [^.]*? in the graph\.)\s+\S")
 
 
 def _summarize_list(text: str, route: str, n: int, n_parts: int = 1, inverse: bool = False) -> str:
@@ -345,6 +347,10 @@ def _summarize_list(text: str, route: str, n: int, n_parts: int = 1, inverse: bo
     """
     if route != "factual" or n <= 3 or n_parts > 1:
         return text
+    # a count answer ("Parasite has 14 awards in the graph. ..."): its first sentence already says it
+    m = _COUNT_HEAD.match(text)
+    if m:
+        return m.group(1)
     noun = "titles" if inverse else "entries"
     m = _LIST_HEAD.match(text)
     if m:

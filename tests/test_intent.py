@@ -139,6 +139,158 @@ def run_case(case):
 
 results = [run_case(c) for c in CASES]
 
+# question robustness (openspec change question-robustness, group 3): wordings written for these
+# tests, not copied from tests/robust_eval.jsonl. Each row: question, expected attributes; "parts"
+# is a list of (kind, relation, mention).
+ROBUST = [
+    # missing auxiliary, verb at the end
+    ("Which films Keanu Reeves acted in?", dict(kind="films_of", relation="cast member", mention="Keanu Reeves")),
+    ("the movies Greta Gerwig directed", dict(kind="films_of", relation="director", mention="Greta Gerwig")),
+    ("films that Sofia Coppola wrote", dict(kind="films_of", relation="screenwriter", mention="Sofia Coppola")),
+    ("What has Cate Blanchett acted in?", dict(kind="films_of", relation="cast member", mention="Cate Blanchett")),
+    ("Emma Thompson starred in which films?", dict(kind="films_of", relation="cast member", mention="Emma Thompson")),
+    ("Which films was Viola Davis in?", dict(kind="films_of", relation="cast member", mention="Viola Davis")),
+    ("What has Ewan McGregor been in", dict(kind="films_of", relation="cast member", mention="Ewan McGregor")),
+    # possessives and "as <role>"
+    ("Jordan Peele's movies as a director", dict(kind="films_of", relation="director", mention="Jordan Peele")),
+    ("Bradley Cooper as an actor", dict(kind="films_of", relation="cast member", mention="Bradley Cooper")),
+    ("Taika Waititi's acting roles", dict(kind="films_of", relation="cast member", mention="Taika Waititi")),
+    ("Ben Affleck directing credits", dict(kind="films_of", relation="director", mention="Ben Affleck")),
+    ("Viola Davis' films", dict(kind="films_of", relation="director", mention="Viola Davis")),
+    # no verb, no possessive
+    ("John Carpenter movies", dict(kind="films_of", relation="director", mention="John Carpenter")),
+    ("Ang Lee films", dict(kind="films_of", relation="director", mention="Ang Lee", confidence=H)),
+    ("Thomas Newman soundtracks", dict(kind="films_of", relation="composer", mention="Thomas Newman")),
+    ("Charlie Kaufman screenplays", dict(kind="films_of", relation="screenwriter", mention="Charlie Kaufman")),
+    ("Coen-directed films", dict(kind="films_of", relation="director", mention="Coen")),
+    # companies: a company word inside the name is no relation cue
+    ("Lionsgate films", dict(kind="films_of", relation="production company", mention="Lionsgate")),
+    ("Universal Pictures movies", dict(kind="films_of", relation="production company", mention="Universal Pictures")),
+    ("Marvel Studios films", dict(kind="films_of", relation="production company", mention="Marvel Studios")),
+    ("what did Blumhouse Productions make", dict(kind="films_of", relation="production company",
+                                                mention="Blumhouse Productions")),
+    ("Who is Marvel Studios?", dict(kind="unknown")),
+    ("Which studio made Shrek?", dict(kind="fact", relation="production company", mention="Shrek")),
+    ("Who directed Studio 54?", dict(kind="fact", relation="director", mention="Studio 54")),
+    # counts
+    ("How many films has Nicolas Cage appeared in?", dict(kind="count", relation="cast member",
+                                                          mention="Nicolas Cage", count=True)),
+    ("how many movies were directed by Ron Howard", dict(kind="count", relation="director", mention="Ron Howard",
+                                                         count=True)),
+    ("number of movies starring Julia Roberts", dict(kind="count", relation="cast member", mention="Julia Roberts",
+                                                     count=True)),
+    ("How many Harry Potter films are there?", dict(kind="count", mention="Harry Potter", count=True)),
+    ("How many awards did Titanic win?", dict(kind="fact", relation="award received", mention="Titanic", count=True)),
+    ("how many movies are there with Morgan Freeman", dict(kind="count", relation="cast member",
+                                                           mention="Morgan Freeman", count=True)),
+    ("Who directed Heat?", dict(kind="fact", count=False, year_from=None, year_to=None)),
+    # year ranges and decades
+    ("Tom Cruise movies from the nineties", dict(kind="films_of", mention="Tom Cruise", year_from=1990, year_to=1999)),
+    ("Clint Eastwood films between 1990 and 2000", dict(kind="films_of", mention="Clint Eastwood",
+                                                        year_from=1990, year_to=2000)),
+    ("Ridley Scott films since 2010", dict(kind="films_of", mention="Ridley Scott", year_from=2010, year_to=None)),
+    ("Woody Allen movies before 1990", dict(kind="films_of", mention="Woody Allen", year_from=None, year_to=1989)),
+    ("Meg Ryan films from the late 90s", dict(kind="films_of", mention="Meg Ryan", year_from=1997, year_to=1999)),
+    ("Sigourney Weaver films from 1986", dict(kind="films_of", mention="Sigourney Weaver", year=None,
+                                              year_from=1986, year_to=1986)),
+    ("1970s Coppola films", dict(kind="films_of", mention="Coppola", year_from=1970, year_to=1979)),
+    ("movies directed by James Cameron after 2000", dict(kind="films_of", relation="director",
+                                                         mention="James Cameron", year_from=2001)),
+    ("films with Sean Connery that came out in the 60s", dict(kind="films_of", relation="cast member",
+                                                              mention="Sean Connery", year_from=1960, year_to=1969)),
+    ("Who directed Before Sunrise?", dict(kind="fact", mention="Before Sunrise", year_from=None, year_to=None)),
+    ("Who directed 2001: A Space Odyssey?", dict(kind="fact", mention="2001: A Space Odyssey", year=None)),
+    # genre filters
+    ("Steve Martin comedies", dict(kind="films_of", mention="Steve Martin", genre="comedy")),
+    ("Which westerns did John Wayne star in?", dict(kind="films_of", relation="cast member", mention="John Wayne",
+                                                    genre="western")),
+    ("John Carpenter horror movies", dict(kind="films_of", mention="John Carpenter", genre="horror")),
+    ("documentaries by Werner Herzog", dict(kind="films_of", relation="director", mention="Werner Herzog",
+                                            genre="documentary")),
+    ("science fiction films directed by James Cameron", dict(kind="films_of", relation="director",
+                                                             mention="James Cameron", genre="sci-fi")),
+    ("thrillers starring Liam Neeson", dict(kind="films_of", relation="cast member", mention="Liam Neeson",
+                                            genre="thriller")),
+    ("DreamWorks Animation films", dict(kind="films_of", relation="production company",
+                                        mention="DreamWorks Animation", genre=None)),
+    # polite and chatty wrappers, caps, emoji, repeated punctuation
+    ("yo who directed jurassic park lol", dict(kind="fact", relation="director", mention="jurassic park")),
+    ("WHO SCORED BRAVEHEART???", dict(kind="fact", relation="composer", mention="BRAVEHEART")),
+    ("who wrote memento?? 🤔", dict(kind="fact", relation="screenwriter", mention="memento")),
+    ("Could u tell me who produced Titanic pls", dict(kind="fact", relation="producer", mention="Titanic")),
+    ("i was wondering who directed Amélie", dict(kind="fact", relation="director", mention="Amélie")),
+    ("quick question: when did Alien come out?", dict(kind="fact", relation="publication date", mention="Alien")),
+    ("hi there! movies with Sandra Bullock please :)", dict(kind="films_of", relation="cast member",
+                                                            mention="Sandra Bullock")),
+    ("who directed Arrival, thanks so much", dict(kind="fact", relation="director", mention="Arrival")),
+    ("Movies by Sofia Coppola!!! 😍😍", dict(kind="films_of", relation="director", mention="Sofia Coppola")),
+    # typos in relation words
+    ("who dirceted memento", dict(kind="fact", relation="director", mention="memento")),
+    ("who composd the score of jaws", dict(kind="fact", relation="composer", mention="jaws")),
+    ("movies directd by Ang Lee", dict(kind="films_of", relation="director", mention="Ang Lee")),
+    ("who produed the matrix", dict(kind="fact", relation="producer", mention="the matrix")),
+    ("when was gladiator relesed", dict(kind="fact", relation="publication date", mention="gladiator")),
+    ("who stared in the matrix", dict(kind="fact", relation="cast member", mention="the matrix")),
+    ("Who directed Scared Stiff?", dict(kind="fact", relation="director", mention="Scared Stiff")),
+    # title before the question
+    ("the matrix who directed it", dict(kind="fact", relation="director", mention="the matrix", confidence=H)),
+    ("Casablanca - when was it released?", dict(kind="fact", relation="publication date", mention="Casablanca")),
+    ("goodfellas, who starred in it", dict(kind="fact", relation="cast member", mention="goodfellas")),
+    ("What country was Amélie made in?", dict(kind="fact", relation="country of origin", mention="Amélie")),
+    ("Which country produced Roma?", dict(kind="fact", relation="country of origin", mention="Roma")),
+    # several relations at once
+    ("Who wrote and produced Rocky?", dict(kind="fact", relation="screenwriter", mention="Rocky",
+                                           parts=[("fact", "producer", "Rocky")])),
+    ("the director and cast of Jaws", dict(kind="fact", relation="director", mention="Jaws",
+                                           parts=[("fact", "cast member", "Jaws")])),
+    ("Who is the composer and cinematographer of Skyfall?", dict(
+        kind="fact", relation="composer", mention="Skyfall", parts=[("fact", "cinematographer", "Skyfall")])),
+    ("release date, director and language of Amélie", dict(
+        kind="fact", relation="publication date", mention="Amélie",
+        parts=[("fact", "director", "Amélie"), ("fact", "original language", "Amélie")])),
+    ("Who directed Memento and who composed its score?", dict(
+        kind="fact", relation="director", mention="Memento", parts=[("fact", "composer", "Memento")])),
+    # characters and series
+    ("Who portrayed Hermione Granger?", dict(kind="fact", relation="cast member", mention="Hermione Granger")),
+    ("Who plays Batman?", dict(kind="fact", relation="cast member", mention="Batman")),
+    ("Which films is James Bond in?", dict(kind="films_of", relation="cast member", mention="James Bond")),
+    ("Which movies have Ellen Ripley in them?", dict(kind="films_of", relation="cast member", mention="Ellen Ripley")),
+    # shared films
+    ("Movies with Tom Cruise and Nicole Kidman", dict(kind="shared", relation="cast member", mention="Tom Cruise",
+                                                      parts=[("films_of", "cast member", "Nicole Kidman")])),
+    ("films Christian Bale and Michael Caine appeared in together", dict(
+        kind="shared", relation="cast member", mention="Christian Bale",
+        parts=[("films_of", "cast member", "Michael Caine")])),
+    ("Films by Tim Burton with music by Danny Elfman", dict(
+        kind="shared", relation="director", mention="Tim Burton", parts=[("films_of", "composer", "Danny Elfman")])),
+    ("Steven Soderbergh and George Clooney films", dict(
+        kind="shared", mention="Steven Soderbergh", parts=[("films_of", "director", "George Clooney")])),
+    ("how many films did Johnny Depp and Helena Bonham Carter make together", dict(
+        kind="shared", mention="Johnny Depp", count=True,
+        parts=[("films_of", "director", "Helena Bonham Carter")])),
+    # not factual
+    ("Shrek-like films", dict(kind="unknown")),
+    ("best horror movies", dict(kind="unknown")),
+    ("good movies from the 90s", dict(kind="unknown")),
+    ("Tell me about Jaws", dict(kind="unknown")),
+    ("what should I watch after Jaws", dict(kind="unknown")),
+]
+
+
+def run_robust(q, want):
+    got = parse_intent(q)
+    have = {k: getattr(got, k) for k in want if k != "parts"}
+    exp = {k: v for k, v in want.items() if k != "parts"}
+    ok = have == exp
+    if "parts" in want:
+        gp = [(p.kind, p.relation, p.mention) for p in got.parts]
+        ok = ok and gp == want["parts"]
+        have["parts"] = gp
+    return check("robust " + repr(q), ok, f"want {want}, got {have}")
+
+
+results += [run_robust(q, w) for q, w in ROBUST]
+
 # parts: relations, the "it" mention is inherited
 g = parse_intent("Who directed Good Will Hunting and who starred in it?")
 results.append(check("split: second part is cast member of the same mention",
@@ -161,7 +313,8 @@ import json  # noqa: E402
 d = parse_intent("Who directed Good Will Hunting and who starred in it?").to_dict()
 results.append(check("to_dict is JSON safe",
                      json.loads(json.dumps(d)) == d and d["parts"][0]["relation"] == "cast member"
-                     and set(d) == {"kind", "relation", "mention", "quoted", "year", "genre", "confidence", "parts"}))
+                     and set(d) == {"kind", "relation", "mention", "quoted", "year", "genre", "confidence", "parts",
+                                    "count", "year_from", "year_to"}))
 results.append(check("Intent defaults", Intent("unknown", None, None).confidence == 0.0
                      and Intent("unknown", None, None).parts == []))
 
@@ -174,7 +327,7 @@ from core.relation import FALLBACK_PRED_URIS  # noqa: E402
 results.append(check("RELATIONS match FALLBACK_PRED_URIS", sorted(RELATIONS) == sorted(FALLBACK_PRED_URIS)))
 
 # parse time over every test question (including the split and quote forms)
-questions = [c[0] for c in CASES]
+questions = [c[0] for c in CASES] + [q for q, _ in ROBUST]
 parse_intent(questions[0])  # warm up
 worst = 0.0
 total = 0.0

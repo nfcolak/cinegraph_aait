@@ -111,6 +111,7 @@ FALLBACK_PRED_URIS = {
     "country of origin": "http://www.wikidata.org/prop/direct/P495",
     "original language": "http://www.wikidata.org/prop/direct/P364",
     "publication date": "http://www.wikidata.org/prop/direct/P577",
+    "characters": "http://www.wikidata.org/prop/direct/P674",
 }
 
 
