@@ -1,0 +1,182 @@
+{
+ "message": "Recommend movies like The Matrix and Blade Runner",
+ "answer": "If you liked The Matrix and Blade Runner, try The Matrix Reloaded, The Matrix Revolutions, Blade Runner 2049, The Invasion, Jupiter Ascending and Bound.",
+ "ok": true,
+ "note": null,
+ "hint": null,
+ "suggestions": [],
+ "suggestions_title": "Films with a similar title in the graph",
+ "alternatives": [],
+ "reading": null,
+ "route": "recommendation",
+ "image": null,
+ "subject": null,
+ "relation": null,
+ "property": null,
+ "inverse": false,
+ "objects": [],
+ "count": 0,
+ "cards": [
+  {
+   "qid": "Q189600",
+   "label": "The Matrix Reloaded",
+   "imdb": "tt0234215",
+   "image": "https://image.tmdb.org/t/p/w500/9TGHDvWrqKBzwDxDodHYXEmOE6J.jpg",
+   "type": "film",
+   "year": "2003",
+   "directors": [
+    "Lana Wachowski",
+    "Lelly Wechawsku"
+   ],
+   "genres": [
+    "martial arts film",
+    "dystopian film",
+    "cyberpunk"
+   ],
+   "rating": 1.93,
+   "backdrop": "https://image.tmdb.org/t/p/w1280/96WHK0TiIslmM8rGVIejMtMtaPG.jpg"
+  },
+  {
+   "qid": "Q207536",
+   "label": "The Matrix Revolutions",
+   "imdb": "tt0242653",
+   "image": "https://image.tmdb.org/t/p/w500/t1wm4PgOQ8e4z1C6tk1yDNrps4T.jpg",
+   "type": "film",
+   "year": "2003",
+   "directors": [
+    "Lelly Wechawsku",
+    "Lana Wachowski"
+   ],
+   "genres": [
+    "science fiction film",
+    "wuxia film",
+    "science fiction action film"
+   ],
+   "rating": 1.66,
+   "backdrop": "https://image.tmdb.org/t/p/w1280/533xAMhhVyjTy8hwMUFEt5TuDfR.jpg"
+  },
+  {
+   "qid": "Q21500755",
+   "label": "Blade Runner 2049",
+   "imdb": "tt1856101",
+   "image": "https://image.tmdb.org/t/p/w500/gajva2L0rPYkEWjzgFlBXCAVBE5.jpg",
+   "type": "film",
+   "year": "2017",
+   "directors": [
+    "Denis Villeneuve"
+   ],
+   "genres": [
+    "thriller film",
+    "action film",
+    "science fiction film"
+   ],
+   "rating": 3.31,
+   "backdrop": "https://image.tmdb.org/t/p/w1280/m7ynwXIvSnhxQPR6pOICrC0L2sO.jpg"
+  },
+  {
+   "qid": "Q652592",
+   "label": "The Invasion",
+   "imdb": "tt0427392",
+   "image": "https://image.tmdb.org/t/p/w500/zEODKtBm9JUuylFLpsrA93Juozv.jpg",
+   "type": "film",
+   "year": "2007",
+   "directors": [
+    "Oliver Hirschbiegel",
+    "James McTeigue"
+   ],
+   "genres": [
+    "horror film",
+    "thriller film",
+    "action film"
+   ],
+   "rating": 1.16,
+   "backdrop": "https://image.tmdb.org/t/p/w1280/qiCzhx0mu2ojmIL30iXe6H4abTF.jpg"
+  },
+  {
+   "qid": "Q12125299",
+   "label": "Jupiter Ascending",
+   "imdb": "tt1617661",
+   "image": "https://image.tmdb.org/t/p/w500/z8dXSSadzpfTF2wHQlREkuB4d5y.jpg",
+   "type": "film",
+   "year": "2015",
+   "directors": [
+    "Lelly Wechawsku",
+    "Lana Wachowski"
+   ],
+   "genres": [
+    "action film",
+    "science fiction film",
+    "adventure film"
+   ],
+   "rating": 1.24,
+   "backdrop": "https://image.tmdb.org/t/p/w1280/6z1GBb8yTFSZP1FWA2dNa9as2zL.jpg"
+  },
+  {
+   "qid": "Q864930",
+   "label": "Bound",
+   "imdb": "tt0115736",
+   "image": "https://image.tmdb.org/t/p/w500/nfXU25TsAUsLMTJ6oHlgxPUcUOF.jpg",
+   "type": "film",
+   "year": "1996",
+   "directors": [
+    "Lelly Wechawsku",
+    "Lana Wachowski"
+   ],
+   "genres": [
+    "thriller film",
+    "crime thriller film",
+    "LGBT-related film"
+   ],
+   "rating": 1.88,
+   "backdrop": "https://image.tmdb.org/t/p/w1280/k1HwxcuoCrKzfZ4UbU1fnNKgXGV.jpg"
+  }
+ ],
+ "seeds": [
+  {
+   "qid": "Q83495",
+   "label": "The Matrix",
+   "imdb": "tt0133093",
+   "image": "https://image.tmdb.org/t/p/w500/p96dm7sCMn4VYAStA6siNz30G1r.jpg",
+   "type": "film",
+   "year": "1999",
+   "directors": [
+    "Lelly Wechawsku",
+    "Lana Wachowski"
+   ],
+   "genres": [
+    "cyberpunk",
+    "film noir",
+    "superhero film"
+   ],
+   "rating": 3.62,
+   "backdrop": "https://image.tmdb.org/t/p/w1280/8K9qHeM6G6QjQN0C5XKFGvK5lzM.jpg"
+  },
+  {
+   "qid": "Q184843",
+   "label": "Blade Runner",
+   "imdb": "tt0083658",
+   "image": "https://image.tmdb.org/t/p/w500/63N9uy8nd9j7Eog2axPQ8lbr3Wj.jpg",
+   "type": "film",
+   "year": "1982",
+   "directors": [
+    "Ridley Scott"
+   ],
+   "genres": [
+    "dystopian film",
+    "drama film",
+    "cyberpunk"
+   ],
+   "rating": 3.61,
+   "backdrop": "https://image.tmdb.org/t/p/w1280/qr7dUqleMRd0VgollazbmyP9XjI.jpg"
+  }
+ ],
+ "rewritten": null,
+ "sparql": null,
+ "trace": [
+  "[responser] Detected recommendation question",
+  "[recommender] Seed movies: ['The Matrix', 'Blade Runner']",
+  "[recommender] Found 12243 candidate movies",
+  "[responser] Recommendation query took 0.206s"
+ ],
+ "latency_ms": 206
+}

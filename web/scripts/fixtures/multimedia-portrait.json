@@ -1,0 +1,42 @@
+{
+ "message": "Show me a picture of Halle Berry",
+ "answer": "",
+ "ok": true,
+ "note": null,
+ "hint": null,
+ "suggestions": [],
+ "suggestions_title": "Films with a similar title in the graph",
+ "alternatives": [],
+ "reading": null,
+ "route": "multimedia",
+ "image": {
+  "url": "https://image.tmdb.org/t/p/w500/9aLI0LSi7cbieyiskOdsBaneKmp.jpg",
+  "kind": "profile",
+  "label": "Halle Berry"
+ },
+ "subject": null,
+ "relation": null,
+ "property": null,
+ "inverse": false,
+ "objects": [],
+ "count": 0,
+ "cards": [
+  {
+   "qid": "Q1033016",
+   "label": "Halle Berry",
+   "imdb": "nm0000932",
+   "image": "https://image.tmdb.org/t/p/w500/9aLI0LSi7cbieyiskOdsBaneKmp.jpg",
+   "type": "person"
+  }
+ ],
+ "seeds": [],
+ "rewritten": null,
+ "sparql": null,
+ "trace": [
+  "[responser] Detected multimedia query",
+  "[multimedia] Detected Intent: PROFILE",
+  "[multimedia] Extraction Candidates: ['Halle Berry']",
+  "[multimedia] Looking up IMDB ID: nm0000932 in map: profile"
+ ],
+ "latency_ms": 3
+}

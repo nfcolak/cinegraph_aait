@@ -1,0 +1,149 @@
+{
+ "message": "I loved Up, what next?",
+ "answer": "If you liked Up, try Soul, Cars 3, Toy Story 4, Coco, Monsters University and The Boxtrolls.",
+ "ok": true,
+ "note": null,
+ "hint": null,
+ "suggestions": [],
+ "suggestions_title": "Films with a similar title in the graph",
+ "alternatives": [],
+ "reading": null,
+ "route": "recommendation",
+ "image": null,
+ "subject": null,
+ "relation": null,
+ "property": null,
+ "inverse": false,
+ "objects": [],
+ "count": 0,
+ "cards": [
+  {
+   "qid": "Q64744044",
+   "label": "Soul",
+   "imdb": "tt2948372",
+   "image": "https://image.tmdb.org/t/p/w500/pEz5aROvfy5FBW1OTlrDO3VryWO.jpg",
+   "type": "film",
+   "year": "2020",
+   "directors": [
+    "Pete Docter"
+   ],
+   "genres": [
+    "ghost film",
+    "animated film",
+    "comedy drama"
+   ],
+   "rating": 1.32,
+   "backdrop": "https://image.tmdb.org/t/p/w1280/rQaHA74pevnGsxcKGaoZVGWe9TC.jpg"
+  },
+  {
+   "qid": "Q21079862",
+   "label": "Cars 3",
+   "imdb": "tt3606752",
+   "image": "https://image.tmdb.org/t/p/w500/fyy1nDC8wm553FCiBDojkJmKLCs.jpg",
+   "type": "film",
+   "year": "2017",
+   "directors": [
+    "Brian Fee"
+   ],
+   "genres": [
+    "children's film",
+    "family film",
+    "fantasy film"
+   ],
+   "rating": 2.08,
+   "backdrop": "https://image.tmdb.org/t/p/w1280/86TlYSntBzD4pxLNM6U3GoOfGdD.jpg"
+  },
+  {
+   "qid": "Q18517638",
+   "label": "Toy Story 4",
+   "imdb": "tt1979376",
+   "image": "https://image.tmdb.org/t/p/w500/w9kR8qbmQ01HwnvK4alvnQ2ca0L.jpg",
+   "type": "film",
+   "year": "2019",
+   "directors": [
+    "Josh Cooley"
+   ],
+   "genres": [
+    "fantasy film",
+    "adventure film",
+    "comedy film"
+   ],
+   "rating": 1.3,
+   "backdrop": "https://image.tmdb.org/t/p/w1280/q62bpQ67qaXY0u6b2wFEnQYIbPd.jpg"
+  },
+  {
+   "qid": "Q5815826",
+   "label": "Coco",
+   "imdb": "tt2380307",
+   "image": "https://image.tmdb.org/t/p/w500/6Ryitt95xrO8KXuqRGm1fUuNwqF.jpg",
+   "type": "film",
+   "year": "2017",
+   "directors": [
+    "Lee Unkrich",
+    "Adrian Molina"
+   ],
+   "genres": [
+    "melodrama",
+    "ghost film",
+    "detective film"
+   ],
+   "rating": 3.86,
+   "backdrop": "https://image.tmdb.org/t/p/w1280/wSJHuSD7ojzoXifWjOAjxV7UpEL.jpg"
+  },
+  {
+   "qid": "Q641362",
+   "label": "Monsters University",
+   "imdb": "tt1453405",
+   "image": "https://image.tmdb.org/t/p/w500/y7thwJ7z5Bplv6vwl6RI0yteaDD.jpg",
+   "type": "film",
+   "year": "2013",
+   "directors": [
+    "Dan Scanlon"
+   ],
+   "genres": [
+    "comedy film",
+    "monster film",
+    "children's film"
+   ],
+   "rating": 1.76,
+   "backdrop": "https://image.tmdb.org/t/p/w1280/hmAOMwVeJfdWXgK1Ikyl2eYkE99.jpg"
+  },
+  {
+   "qid": "Q12103758",
+   "label": "The Boxtrolls",
+   "imdb": "tt0787474",
+   "image": "https://image.tmdb.org/t/p/w500/npBf0yc5Gt7aAyyVOcYtFyT2IPa.jpg",
+   "type": "film",
+   "year": "2014",
+   "directors": [
+    "Intheny Staccho",
+    "Graham Annable"
+   ],
+   "genres": [
+    "film based on literature",
+    "fantasy film",
+    "comedy film"
+   ],
+   "rating": 1.24,
+   "backdrop": "https://image.tmdb.org/t/p/w1280/q2vz5DeLbegD2teJU29Gtb4t2sO.jpg"
+  }
+ ],
+ "seeds": [
+  {
+   "qid": "Q174811",
+   "label": "Up",
+   "imdb": "tt1049413",
+   "image": null,
+   "type": "other"
+  }
+ ],
+ "rewritten": null,
+ "sparql": null,
+ "trace": [
+  "[responser] Detected recommendation question",
+  "[recommender] Seed movies: ['Up']",
+  "[recommender] Found 12245 candidate movies",
+  "[responser] Recommendation query took 0.193s"
+ ],
+ "latency_ms": 193
+}

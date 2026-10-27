@@ -1,0 +1,201 @@
+{
+ "message": "Which movies did Christopher Nolan direct?",
+ "answer": "Movies directed by Christopher Nolan: 10 titles in the graph.",
+ "ok": true,
+ "note": null,
+ "hint": null,
+ "suggestions": [],
+ "suggestions_title": "Films with a similar title in the graph",
+ "alternatives": [],
+ "reading": {
+  "relation": "director",
+  "subject": "Christopher Nolan",
+  "subject_kind": "person",
+  "via_count": 0,
+  "parts": [
+   {
+    "relation": "director",
+    "answer": "Movies directed by Christopher Nolan include The Dark Knight and Oppenheimer and The Dark Knight Rises and Batman Begins and Inception and Interstellar and Dunkirk and The Prestige and Insomnia and Following."
+   }
+  ]
+ },
+ "route": "factual",
+ "image": null,
+ "subject": {
+  "qid": "Q25191",
+  "label": "Christopher Nolan",
+  "imdb": "nm0634240",
+  "image": "https://image.tmdb.org/t/p/w500/xuAIuYSmsUzKlUMBFGVZaWsY3DZ.jpg",
+  "type": "person"
+ },
+ "relation": "director",
+ "property": "P57",
+ "inverse": true,
+ "objects": [
+  "The Dark Knight",
+  "Oppenheimer",
+  "The Dark Knight Rises",
+  "Batman Begins",
+  "Inception",
+  "Interstellar",
+  "Dunkirk",
+  "The Prestige",
+  "Insomnia",
+  "Following"
+ ],
+ "count": 10,
+ "cards": [
+  {
+   "qid": "Q163872",
+   "label": "The Dark Knight",
+   "imdb": "tt0468569",
+   "image": "https://image.tmdb.org/t/p/w500/qJ2tW6WMUDux911r6m7haRef0WH.jpg",
+   "type": "film",
+   "year": "2008",
+   "directors": [
+    "Christopher Nolan"
+   ],
+   "genres": [
+    "superhero film",
+    "thriller film",
+    "action film"
+   ],
+   "rating": 3.3,
+   "backdrop": "https://image.tmdb.org/t/p/w1280/enNubozHn9pXi0ycTVYUWfpHZm.jpg"
+  },
+  {
+   "qid": "Q108839994",
+   "label": "Oppenheimer",
+   "imdb": "tt15398776",
+   "image": "https://image.tmdb.org/t/p/w500/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg",
+   "type": "film",
+   "year": "2023",
+   "directors": [
+    "Christopher Nolan"
+   ],
+   "genres": [
+    "thriller film",
+    "film based on book",
+    "epic film"
+   ],
+   "rating": 2.4,
+   "backdrop": "https://image.tmdb.org/t/p/w1280/cUIqZd6jJCbO94Txt1CkTs7MSeP.jpg"
+  },
+  {
+   "qid": "Q189330",
+   "label": "The Dark Knight Rises",
+   "imdb": "tt1345836",
+   "image": "https://image.tmdb.org/t/p/w500/hr0L2aueqlP2BYUblTTjmtn0hw4.jpg",
+   "type": "film",
+   "year": "2012",
+   "directors": [
+    "Christopher Nolan"
+   ],
+   "genres": [
+    "superhero film",
+    "thriller film",
+    "action film"
+   ],
+   "rating": 1.88,
+   "backdrop": "https://image.tmdb.org/t/p/w1280/y2DB71C4nyIdMrANijz8mzvQtk6.jpg"
+  },
+  {
+   "qid": "Q166262",
+   "label": "Batman Begins",
+   "imdb": "tt0372784",
+   "image": "https://image.tmdb.org/t/p/w500/sPX89Td70IDDjVr85jdSBb4rWGr.jpg",
+   "type": "film",
+   "year": "2005",
+   "directors": [
+    "Christopher Nolan"
+   ],
+   "genres": [
+    "ninja film",
+    "adventure film",
+    "drama film"
+   ],
+   "rating": 2.21,
+   "backdrop": "https://image.tmdb.org/t/p/w1280/ew5FcYiRhTYNJAkxoVPMNlCOdVn.jpg"
+  },
+  {
+   "qid": "Q25188",
+   "label": "Inception",
+   "imdb": "tt1375666",
+   "image": "https://image.tmdb.org/t/p/w500/ljsZTbVsrQSqZgWeep2B1QiDKuh.jpg",
+   "type": "film",
+   "year": "2010",
+   "directors": [
+    "Christopher Nolan"
+   ],
+   "genres": [
+    "adventure film",
+    "drama film",
+    "science fiction action film"
+   ],
+   "rating": 3.84,
+   "backdrop": "https://image.tmdb.org/t/p/w1280/gqby0RhyehP3uRrzmdyUZ0CgPPe.jpg"
+  },
+  {
+   "qid": "Q13417189",
+   "label": "Interstellar",
+   "imdb": "tt0816692",
+   "image": "https://image.tmdb.org/t/p/w500/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg",
+   "type": "film",
+   "year": "2014",
+   "directors": [
+    "Christopher Nolan"
+   ],
+   "genres": [
+    "dystopian film",
+    "adventure film",
+    "drama film"
+   ],
+   "rating": 2.89,
+   "backdrop": "https://image.tmdb.org/t/p/w1280/vgnoBSVzWAV9sNQUORaDGvDp7wx.jpg"
+  },
+  {
+   "qid": "Q21935651",
+   "label": "Dunkirk",
+   "imdb": "tt5013056",
+   "image": "https://image.tmdb.org/t/p/w500/b4Oe15CGLL61Ped0RAS9JpqdmCt.jpg",
+   "type": "film",
+   "year": "2017",
+   "directors": [
+    "Christopher Nolan"
+   ],
+   "genres": [
+    "war film",
+    "drama film"
+   ],
+   "rating": 3.79,
+   "backdrop": "https://image.tmdb.org/t/p/w1280/ddIkmH3TpR6XSc47jj0BrGK5Rbz.jpg"
+  },
+  {
+   "qid": "Q46551",
+   "label": "The Prestige",
+   "imdb": "tt0482571",
+   "image": "https://image.tmdb.org/t/p/w500/2ZOzyhoW08neG27DVySMCcq2emd.jpg",
+   "type": "film",
+   "year": "2006",
+   "directors": [
+    "Christopher Nolan"
+   ],
+   "genres": [
+    "drama film",
+    "mystery film",
+    "thriller film"
+   ],
+   "rating": 1.86,
+   "backdrop": "https://image.tmdb.org/t/p/w1280/yCnJT53HMXAK87xzPAdjdYhZ3JE.jpg"
+  }
+ ],
+ "seeds": [],
+ "rewritten": null,
+ "sparql": "SELECT DISTINCT ?movie WHERE {\n    ?movie <http://www.wikidata.org/prop/direct/P57> <http://www.wikidata.org/entity/Q25191> .\n}",
+ "trace": [
+  "[responser] Answered through intent: director / Christopher Nolan",
+  "[responser] Factual query took 0.009s",
+  "[responser] Total response time: 0.015s"
+ ],
+ "latency_ms": 15
+}

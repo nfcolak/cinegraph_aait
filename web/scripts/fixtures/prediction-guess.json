@@ -1,0 +1,59 @@
+{
+ "message": "Who is the composer of The Doors?",
+ "answer": "The graph has no composer for The Doors (1991).",
+ "ok": false,
+ "note": "The closest guess of the graph embeddings is Alfred Newman; this is a prediction, not a fact from the graph.",
+ "hint": null,
+ "suggestions": [
+  {
+   "qid": "Q937087",
+   "label": "The Doors",
+   "year": "1991",
+   "image": "https://image.tmdb.org/t/p/w342/x1LM3dzGuG6xOz0aT2e71o11vhu.jpg",
+   "rating": 1.05
+  }
+ ],
+ "suggestions_title": "Films with a similar title in the graph",
+ "alternatives": [],
+ "reading": {
+  "relation": "composer",
+  "subject": "The Doors",
+  "subject_kind": "film",
+  "via_count": 0,
+  "parts": []
+ },
+ "route": "prediction",
+ "image": null,
+ "subject": {
+  "qid": "Q937087",
+  "label": "The Doors",
+  "imdb": "tt0101761",
+  "image": "https://image.tmdb.org/t/p/w500/x1LM3dzGuG6xOz0aT2e71o11vhu.jpg",
+  "type": "film",
+  "year": "1991",
+  "directors": [
+   "Oliver Stone"
+  ],
+  "genres": [
+   "drama film",
+   "biographical film",
+   "musical film"
+  ],
+  "rating": 1.05,
+  "backdrop": "https://image.tmdb.org/t/p/w1280/oju8432Pl3WxbNetprdbedzVccp.jpg"
+ },
+ "relation": "composer",
+ "property": "P86",
+ "inverse": false,
+ "objects": [],
+ "count": 0,
+ "cards": [],
+ "seeds": [],
+ "rewritten": null,
+ "sparql": "SELECT DISTINCT ?obj ?label\nWHERE {\n  wd:Q937087 <http://www.wikidata.org/prop/direct/P86> ?obj .\n  OPTIONAL {\n    ?obj rdfs:label ?label .\n    FILTER (lang(?label) = \"en\")\n  }\n}",
+ "trace": [
+  "[responser] Factual query took 0.012s",
+  "[responser] Total response time: 0.053s"
+ ],
+ "latency_ms": 53
+}

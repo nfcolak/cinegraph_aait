@@ -1,0 +1,64 @@
+{
+ "message": "Who directed Galaxy Quest?",
+ "answer": "The graph has no director for Galaxy Quest (1999).",
+ "ok": false,
+ "note": null,
+ "hint": null,
+ "suggestions": [
+  {
+   "qid": "Q502067",
+   "label": "Galaxy Quest",
+   "year": "1999",
+   "image": "https://image.tmdb.org/t/p/w342/fZXSwgZknp81vmciTb86rw0MejV.jpg",
+   "rating": 3.11
+  },
+  {
+   "qid": "Q7207814834965729",
+   "label": "Galaxy Quest Reloaded",
+   "year": "2004",
+   "image": "https://image.tmdb.org/t/p/w342/HPlYkPRcfkeqh8boS9ODjlB3Dm7.png",
+   "rating": null
+  }
+ ],
+ "suggestions_title": "Films with a similar title in the graph",
+ "alternatives": [],
+ "reading": {
+  "relation": "director",
+  "subject": "Galaxy Quest",
+  "subject_kind": "film",
+  "via_count": 0,
+  "parts": []
+ },
+ "route": "factual",
+ "image": null,
+ "subject": {
+  "qid": "Q502067",
+  "label": "Galaxy Quest",
+  "imdb": "tt0177789",
+  "image": "https://image.tmdb.org/t/p/w500/fZXSwgZknp81vmciTb86rw0MejV.jpg",
+  "type": "film",
+  "year": "1999",
+  "directors": [],
+  "genres": [
+   "science fiction film",
+   "parody film",
+   "comedy film"
+  ],
+  "rating": 3.11,
+  "backdrop": "https://image.tmdb.org/t/p/w1280/yzQ0mkz1OUJKtUK1NWp53jiGcaJ.jpg"
+ },
+ "relation": "director",
+ "property": "P57",
+ "inverse": false,
+ "objects": [],
+ "count": 0,
+ "cards": [],
+ "seeds": [],
+ "rewritten": null,
+ "sparql": "SELECT DISTINCT ?obj ?label\nWHERE {\n  wd:Q502067 <http://www.wikidata.org/prop/direct/P57> ?obj .\n  OPTIONAL {\n    ?obj rdfs:label ?label .\n    FILTER (lang(?label) = \"en\")\n  }\n}",
+ "trace": [
+  "[responser] Factual query took 0.006s",
+  "[responser] Total response time: 0.118s"
+ ],
+ "latency_ms": 118
+}

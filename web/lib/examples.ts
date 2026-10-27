@@ -7,7 +7,11 @@ export interface ExampleGroup {
   questions: string[];
 }
 
-// Every question here was answered by the running agent before it was listed.
+// Every question here was asked on the running API (POST /api/chat) on 2026-10-27 and came back on the route
+// of its group with a correct answer. Dropped that day: "Who is the composer of Titanic?" (the graph holds only
+// the 1953 film), "Who directed Galaxy Quest?" and "Who is the composer of Pulp Fiction?" (no prediction
+// offered), "What is the genre of Central Station?" (no match) and the "A.I. Artificial Intelligence" request
+// (title not found). A prediction here is the graph saying a fact is missing plus a flagged embedding guess.
 export const EXAMPLES: ExampleGroup[] = [
   {
     route: "factual",
@@ -16,7 +20,7 @@ export const EXAMPLES: ExampleGroup[] = [
     questions: [
       "Who directed Inception?",
       "Which movies did Christopher Nolan direct?",
-      "Who is the composer of Titanic?",
+      "Who is the composer of Jaws?",
       "When was The Godfather released?",
     ],
   },
@@ -25,9 +29,9 @@ export const EXAMPLES: ExampleGroup[] = [
     title: "Predictions",
     blurb: "When the graph has no answer, embeddings guess one.",
     questions: [
-      "Who directed Galaxy Quest?",
-      "What is the genre of Central Station?",
-      "Who is the composer of Pulp Fiction?",
+      "Who is the composer of Once Upon a Time in Hollywood?",
+      "Who is the composer of The Doors?",
+      "Who is the composer of American Sniper?",
     ],
   },
   {
@@ -36,7 +40,7 @@ export const EXAMPLES: ExampleGroup[] = [
     blurb: "Films that share genre, people and studio.",
     questions: [
       "Recommend movies like The Matrix and Blade Runner",
-      "Given that I like A.I. Artificial Intelligence, can you recommend some movies?",
+      "I loved Up, what next?",
       "Recommend me some horror movies",
     ],
   },

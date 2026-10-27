@@ -1,0 +1,72 @@
+{
+ "message": "When was The Godfather released?",
+ "answer": "The movie was released on 1972-03-15. (There are 3 entries called The Godfather; this is the 1972 film.)",
+ "ok": true,
+ "note": null,
+ "hint": null,
+ "suggestions": [],
+ "suggestions_title": "Films with a similar title in the graph",
+ "alternatives": [
+  {
+   "qid": "Q3225260",
+   "label": "The Godfather",
+   "year": null,
+   "kind": "series",
+   "ask": "When was The Godfather released?"
+  },
+  {
+   "qid": "Q5576354",
+   "label": "Godfather",
+   "year": 1991,
+   "kind": "film",
+   "ask": "When was Godfather (1991) released?"
+  }
+ ],
+ "reading": {
+  "relation": "publication date",
+  "subject": "The Godfather",
+  "subject_kind": "film",
+  "via_count": 0,
+  "parts": [
+   {
+    "relation": "publication date",
+    "answer": "The movie was released on 1972-03-15. (There are 3 entries called The Godfather; this is the 1972 film.)"
+   }
+  ]
+ },
+ "route": "factual",
+ "image": null,
+ "subject": {
+  "qid": "Q47703",
+  "label": "The Godfather",
+  "imdb": "tt0068646",
+  "image": "https://image.tmdb.org/t/p/w500/3bhkrj58Vtu7enYsRolD1fZdja1.jpg",
+  "type": "film",
+  "year": "1972",
+  "directors": [
+   "Francis Ford Coppola"
+  ],
+  "genres": [
+   "drama film",
+   "crime drama film",
+   "historical drama film"
+  ],
+  "rating": 3.65,
+  "backdrop": "https://image.tmdb.org/t/p/w1280/AbgEQO2mneCSOc8CSnOMa8pBS8I.jpg"
+ },
+ "relation": "publication date",
+ "property": "P577",
+ "inverse": false,
+ "objects": [],
+ "count": 0,
+ "cards": [],
+ "seeds": [],
+ "rewritten": null,
+ "sparql": "SELECT DISTINCT ?obj ?label\nWHERE {\n  wd:Q47703 <http://www.wikidata.org/prop/direct/P577> ?obj .\n  OPTIONAL {\n    ?obj rdfs:label ?label .\n    FILTER (lang(?label) = \"en\")\n  }\n}",
+ "trace": [
+  "[responser] Answered through intent: publication date / The Godfather",
+  "[responser] Factual query took 0.004s",
+  "[responser] Total response time: 0.004s"
+ ],
+ "latency_ms": 4
+}

@@ -1,0 +1,53 @@
+{
+ "message": "Show me the poster of Interstellar",
+ "answer": "",
+ "ok": true,
+ "note": null,
+ "hint": null,
+ "suggestions": [],
+ "suggestions_title": "Films with a similar title in the graph",
+ "alternatives": [],
+ "reading": null,
+ "route": "multimedia",
+ "image": {
+  "url": "https://image.tmdb.org/t/p/w500/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg",
+  "kind": "poster",
+  "label": "Interstellar"
+ },
+ "subject": null,
+ "relation": null,
+ "property": null,
+ "inverse": false,
+ "objects": [],
+ "count": 0,
+ "cards": [
+  {
+   "qid": "Q13417189",
+   "label": "Interstellar",
+   "imdb": "tt0816692",
+   "image": "https://image.tmdb.org/t/p/w500/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg",
+   "type": "film",
+   "year": "2014",
+   "directors": [
+    "Christopher Nolan"
+   ],
+   "genres": [
+    "dystopian film",
+    "adventure film",
+    "drama film"
+   ],
+   "rating": 2.89,
+   "backdrop": "https://image.tmdb.org/t/p/w1280/vgnoBSVzWAV9sNQUORaDGvDp7wx.jpg"
+  }
+ ],
+ "seeds": [],
+ "rewritten": null,
+ "sparql": null,
+ "trace": [
+  "[responser] Detected multimedia query",
+  "[multimedia] Detected Intent: POSTER",
+  "[multimedia] Extraction Candidates: ['Interstellar']",
+  "[multimedia] Looking up IMDB ID: tt0816692 in map: poster"
+ ],
+ "latency_ms": 4
+}

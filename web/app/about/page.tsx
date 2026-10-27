@@ -1,13 +1,19 @@
+import type { CSSProperties, ReactNode } from "react";
 import type { Metadata } from "next";
-import { Reader, REPO, Sheet } from "../components/SiteHeader";
+import { ROUTE_INFO, type Route } from "@/lib/api";
+import { Page, SectionTabs, StatBox } from "../components/PageLayout";
+import { REPO } from "@/lib/site";
+import { Sheet } from "../components/Console";
 
 export const metadata: Metadata = {
   title: "How it works · CineGraph",
   description: "How CineGraph routes a movie question to SPARQL, TransE embeddings, a recommender or an image index.",
 };
 
-const ROUTES = [
+// in the order the agent tries them
+const ROUTES: { route: Route; name: string; body: ReactNode }[] = [
   {
+    route: "multimedia",
     name: "Picture",
     body: (
       <>
@@ -18,6 +24,7 @@ const ROUTES = [
     ),
   },
   {
+    route: "recommendation",
     name: "Recommendation",
     body: (
       <>
@@ -31,6 +38,7 @@ const ROUTES = [
     ),
   },
   {
+    route: "factual",
     name: "Stored fact",
     body: (
       <>
@@ -42,6 +50,7 @@ const ROUTES = [
     ),
   },
   {
+    route: "prediction",
     name: "Prediction",
     body: (
       <>
@@ -53,6 +62,12 @@ const ROUTES = [
   },
 ];
 
+const STEPS = [
+  { name: "Question", text: "Typed in the box, up to 300 characters." },
+  { name: "Intent", text: "Rules read the relation, the subject and any year hint." },
+  { name: "Entity link", text: "The named film or person is matched to a Wikidata entity, with typo tolerance." },
+];
+
 const SECTIONS = [
   { id: "overview", label: "Overview" },
   { id: "pipelines", label: "Pipelines" },
@@ -61,105 +76,152 @@ const SECTIONS = [
   { id: "credits", label: "Who built it" },
 ];
 
+const routeColour = (r: Route) => ({ "--route": `var(--route-${r})` }) as CSSProperties;
+
+/** The answer pipeline drawn as step cards joined by red connectors; it stacks vertically on narrow screens. */
+function Flow() {
+  return (
+    <ol className="flow" aria-label="From a question to an answer">
+      {STEPS.map((s, i) => (
+        <li key={s.name} className="flow-step">
+          <span className="flow-n">{String(i + 1).padStart(2, "0")}</span>
+          <h3>{s.name}</h3>
+          <p>{s.text}</p>
+        </li>
+      ))}
+      <li className="flow-fan">
+        <span className="flow-n">04 · first match wins</span>
+        <ol className="flow-routes" aria-label="Pipelines in the order they are tried">
+          {ROUTES.map((r, i) => (
+            <li key={r.route} className="flow-route" style={routeColour(r.route)}>
+              <div className="flow-card">
+                <span className="flow-route-n">{i + 1}</span>
+                <div>
+                  <h3>{r.name}</h3>
+                  <p>{ROUTE_INFO[r.route].method}</p>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </li>
+      <li className="flow-step flow-end">
+        <span className="flow-n">05</span>
+        <h3>Answer</h3>
+        <p>The text, with its path, query and log as evidence.</p>
+      </li>
+    </ol>
+  );
+}
+
 export default function About() {
   return (
     <Sheet title="How it works">
-      <Reader
-        back={{ href: "/", label: "Gallery" }}
-        title="How CineGraph answers"
-        meta={[
-          { label: "Type", value: "Conversational agent · UZH AI Core project" },
-          { label: "Stack", value: "Python / RDFLib / SPARQL / TransE" },
-          {
-            label: "Source",
-            value: (
-              <a href={REPO} target="_blank" rel="noreferrer">
-                GitHub ↗
-              </a>
-            ),
-          },
-        ]}
-        sections={SECTIONS}
-      >
-        <section className="block" id="overview">
+      <Page>
+        <header className="about-intro">
+          <p className="page-kicker">Wikidata film graph · 2.4M facts</p>
+          <h1 className="about-title">How CineGraph answers</h1>
           <p className="lede lede-large">
             No language model writes these answers. The agent parses a question with rules, picks one of four pipelines and runs it
             on a knowledge graph extracted from Wikidata.
           </p>
-          <dl className="figures">
+          <StatBox
+            label="The graph in numbers"
+            items={[
+              { label: "Facts in the graph", value: "2,413,825" },
+              { label: "Entities with an English label", value: "129,673" },
+              { label: "Entities with a TransE embedding", value: "175,660" },
+              { label: "Films with a poster", value: "12,326" },
+            ]}
+          />
+          <dl className="kv kv-inline">
             <div>
-              <dt>Facts in the graph</dt>
-              <dd>2,413,825</dd>
+              <dt>Type</dt>
+              <dd>Conversational agent · UZH AI Core project</dd>
             </div>
             <div>
-              <dt>Entities with an English label</dt>
-              <dd>129,673</dd>
+              <dt>Stack</dt>
+              <dd>Python / RDFLib / SPARQL / TransE</dd>
             </div>
             <div>
-              <dt>Entities with a TransE embedding</dt>
-              <dd>175,660</dd>
-            </div>
-            <div>
-              <dt>Films with a poster</dt>
-              <dd>12,326</dd>
+              <dt>Source</dt>
+              <dd>
+                <a href={REPO} target="_blank" rel="noreferrer">
+                  GitHub ↗
+                </a>
+              </dd>
             </div>
           </dl>
-        </section>
+        </header>
 
-        <section className="block" id="pipelines">
-          <h2 className="block-title">The order of the checks</h2>
-          <p className="prose">The agent tries the pipelines in this order and answers with the first one that matches.</p>
-          <ol className="pipeline">
-            {ROUTES.map((r, i) => (
-              <li key={r.name}>
-                <span className="pipeline-n">{String(i + 1).padStart(2, "0")}</span>
-                <div>
-                  <h3>{r.name}</h3>
-                  <p>{r.body}</p>
-                </div>
-              </li>
-            ))}
-          </ol>
-        </section>
+        <SectionTabs sections={SECTIONS} label="On this page" />
 
-        <section className="block" id="reading">
-          <h2 className="block-title">Reading an answer</h2>
-          <p className="prose">
-            Under each answer, “Read as” says how the question was understood, “Path” prints the triple that was queried
-            (subject, Wikidata property and result, with their IDs) and “Answered by” names the pipeline and how long it took.
-            “Show query” opens the SPARQL query and the agent’s own log for that question.
-          </p>
-        </section>
+        <div className="about-body">
+          <section className="block" id="overview">
+            <h2 className="block-title">Overview</h2>
+            <p className="prose">
+              Every question takes the same road: it is read, its subject is linked to the graph, and the first pipeline that
+              fits answers it.
+            </p>
+            <Flow />
+          </section>
 
-        <section className="block" id="limits">
-          <h2 className="block-title">Limits</h2>
-          <p className="prose">
-            The graph is a course snapshot of Wikidata. Recent films and some facts are missing, a few entities have no English
-            label and appear as Q-IDs, and some labels were altered on purpose for the course. Questions are matched with
-            patterns, so unusual phrasing can miss; naming the film exactly works best. Images come from TMDB’s CDN.
-          </p>
-        </section>
+          <section className="block" id="pipelines">
+            <h2 className="block-title">The order of the checks</h2>
+            <p className="prose">The agent tries the pipelines in this order and answers with the first one that matches.</p>
+            <ol className="pipeline">
+              {ROUTES.map((r, i) => (
+                <li key={r.name} style={routeColour(r.route)}>
+                  <span className="pipeline-n">{String(i + 1).padStart(2, "0")}</span>
+                  <div>
+                    <h3>{r.name}</h3>
+                    <p>{r.body}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          </section>
 
-        <section className="block" id="credits">
-          <h2 className="block-title">Who built it</h2>
-          <p className="prose">
-            Necati Furkan Çolak and Leyla Khasiyeva, University of Zurich. The agent first ran as a bot on UZH’s Speakeasy chat
-            platform; this site puts the same code behind a web interface.
-          </p>
-          <p className="link-row">
-            <a href={REPO} target="_blank" rel="noreferrer">
-              Source on GitHub ↗
-            </a>
-            <a
-              href={`${REPO}/blob/main/Report/Evaluation_Event_Final_Agent_SlateLeapingDeer_colakn_khasiyevl.pdf`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Final report (PDF) ↗
-            </a>
-          </p>
-        </section>
-      </Reader>
+          <section className="block" id="reading">
+            <h2 className="block-title">Reading an answer</h2>
+            <p className="prose">
+              Under each answer, the “evidence · N” button opens the evidence panel (a bottom sheet on phones). It draws the
+              answer as a small graph, “Answered by” names the pipeline and how long it took, “Read as” says how the question was
+              understood and “Graph path” prints the triple that was queried (subject, Wikidata property and result, with their
+              IDs). The panel ends with the SPARQL query and the agent’s own log for that question.
+            </p>
+          </section>
+
+          <section className="block" id="limits">
+            <h2 className="block-title">Limits</h2>
+            <p className="prose">
+              The graph is a course snapshot of Wikidata. Recent films and some facts are missing, a few entities have no English
+              label and appear as Q-IDs, and some labels were altered on purpose for the course. Questions are matched with
+              patterns, so unusual phrasing can miss; naming the film exactly works best. Images come from TMDB’s CDN.
+            </p>
+          </section>
+
+          <section className="block" id="credits">
+            <h2 className="block-title">Who built it</h2>
+            <p className="prose">
+              Necati Furkan Çolak and Leyla Khasiyeva, University of Zurich. The agent first ran as a bot on UZH’s Speakeasy chat
+              platform; this site puts the same code behind a web interface.
+            </p>
+            <p className="link-row">
+              <a href={REPO} target="_blank" rel="noreferrer">
+                Source on GitHub ↗
+              </a>
+              <a
+                href={`${REPO}/blob/main/Report/Evaluation_Event_Final_Agent_SlateLeapingDeer_colakn_khasiyevl.pdf`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Final report (PDF) ↗
+              </a>
+            </p>
+          </section>
+        </div>
+      </Page>
     </Sheet>
   );
 }

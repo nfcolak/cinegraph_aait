@@ -11,7 +11,14 @@ export function FilmTile({ film, sub }: { film: FilmRow; sub?: string | null }) 
     <li className="tile">
       <Link href={filmHref(film.qid)} className="tile-link">
         <div className="tile-art">
-          {film.image ? <img src={film.image} alt="" loading="lazy" /> : <span className="tile-blank">{film.label}</span>}
+          {film.image ? <img src={film.image} alt="" loading="lazy" /> : <span className="tile-blank" aria-hidden="true">{film.label}</span>}
+          {(film.year || film.rating !== null) && (
+            // hover overlay (shown inside .tiles-over); the year is also in the tile meta, so it is hidden from readers
+            <span className="tile-over" aria-hidden="true">
+              <span>{film.year}</span>
+              {film.rating !== null && <span>★ {film.rating.toFixed(1)}</span>}
+            </span>
+          )}
         </div>
         <p className="tile-title">{film.label}</p>
         {(sub ?? film.year) && <p className="tile-meta">{sub ?? film.year}</p>}

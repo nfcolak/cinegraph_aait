@@ -1,0 +1,76 @@
+{
+ "message": "Who directed City of God?",
+ "answer": "The movie was directed by Fernando Meirelles and Kátia Lund.",
+ "ok": true,
+ "note": null,
+ "hint": null,
+ "suggestions": [],
+ "suggestions_title": "Films with a similar title in the graph",
+ "alternatives": [],
+ "reading": {
+  "relation": "director",
+  "subject": "City of God",
+  "subject_kind": "film",
+  "via_count": 0,
+  "parts": [
+   {
+    "relation": "director",
+    "answer": "The movie was directed by Fernando Meirelles and Kátia Lund."
+   }
+  ]
+ },
+ "route": "factual",
+ "image": null,
+ "subject": {
+  "qid": "Q220741",
+  "label": "City of God",
+  "imdb": "tt0317248",
+  "image": "https://image.tmdb.org/t/p/w500/k7eYdWvhYQyRQoU2TB2A2Xu2TfD.jpg",
+  "type": "film",
+  "year": "2002",
+  "directors": [
+   "Fernando Meirelles",
+   "Kátia Lund"
+  ],
+  "genres": [
+   "film based on literature",
+   "coming-of-age fiction",
+   "hood film"
+  ],
+  "rating": 2.33,
+  "backdrop": "https://image.tmdb.org/t/p/w1280/uvitbjFU4JqvMwIkMWHp69bmUzG.jpg"
+ },
+ "relation": "director",
+ "property": "P57",
+ "inverse": false,
+ "objects": [
+  "Fernando Meirelles",
+  "Kátia Lund"
+ ],
+ "count": 2,
+ "cards": [
+  {
+   "qid": "Q343293",
+   "label": "Fernando Meirelles",
+   "imdb": "nm0576987",
+   "image": "https://image.tmdb.org/t/p/w500/usc1zwBXEHN4A6rkvJcmgWpc7rS.jpg",
+   "type": "person"
+  },
+  {
+   "qid": "Q3033796",
+   "label": "Kátia Lund",
+   "imdb": "nm0526199",
+   "image": "https://image.tmdb.org/t/p/w500/8jNK0JjXe6e47G9VgBtGutLadKK.jpg",
+   "type": "person"
+  }
+ ],
+ "seeds": [],
+ "rewritten": null,
+ "sparql": "SELECT DISTINCT ?obj ?label\nWHERE {\n  wd:Q220741 <http://www.wikidata.org/prop/direct/P57> ?obj .\n  OPTIONAL {\n    ?obj rdfs:label ?label .\n    FILTER (lang(?label) = \"en\")\n  }\n}",
+ "trace": [
+  "[responser] Answered through intent: director / City of God",
+  "[responser] Factual query took 0.005s",
+  "[responser] Total response time: 0.005s"
+ ],
+ "latency_ms": 5
+}

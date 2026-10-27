@@ -1,0 +1,140 @@
+{
+ "message": "Recommend me some horror movies",
+ "answer": "Some horror films from the graph: The Birds, Alien, The Shining, Young Frankenstein, Carrie and Rosemary's Baby.",
+ "ok": true,
+ "note": null,
+ "hint": null,
+ "suggestions": [],
+ "suggestions_title": "Films with a similar title in the graph",
+ "alternatives": [],
+ "reading": null,
+ "route": "recommendation",
+ "image": null,
+ "subject": null,
+ "relation": null,
+ "property": null,
+ "inverse": false,
+ "objects": [],
+ "count": 0,
+ "cards": [
+  {
+   "qid": "Q110043",
+   "label": "The Birds",
+   "imdb": "tt0056869",
+   "image": "https://image.tmdb.org/t/p/w500/eClg8QPg8mwB6INIC4pyR5pAbDr.jpg",
+   "type": "film",
+   "year": "1963",
+   "directors": [
+    "Alfred Hitchcock"
+   ],
+   "genres": [
+    "natural horror film",
+    "horror film",
+    "thriller film"
+   ],
+   "rating": 3.12,
+   "backdrop": "https://image.tmdb.org/t/p/w1280/il5zDHC5sGe3ZHLhVi3tNFZ9Tt5.jpg"
+  },
+  {
+   "qid": "Q103569",
+   "label": "Alien",
+   "imdb": "tt0078748",
+   "image": "https://image.tmdb.org/t/p/w500/vfrQk5IPloGg1v9Rzbh2Eg3VGyM.jpg",
+   "type": "film",
+   "year": "1979",
+   "directors": [
+    "Ridley Scott"
+   ],
+   "genres": [
+    "mystery film",
+    "horror film",
+    "thriller film"
+   ],
+   "rating": 3.69,
+   "backdrop": "https://image.tmdb.org/t/p/w1280/AmR3JG1VQVxU8TfAvljUhfSFUOx.jpg"
+  },
+  {
+   "qid": "Q186341",
+   "label": "The Shining",
+   "imdb": "tt0081505",
+   "image": "https://image.tmdb.org/t/p/w500/xazWoLealQwEgqZ89MLZklLZD3k.jpg",
+   "type": "film",
+   "year": "1980",
+   "directors": [
+    "Stanley Kubrick"
+   ],
+   "genres": [
+    "drama film",
+    "psychological horror film",
+    "mystery film"
+   ],
+   "rating": 3.05,
+   "backdrop": "https://image.tmdb.org/t/p/w1280/mmd1HnuvAzFc4iuVJcnBrhDNEKr.jpg"
+  },
+  {
+   "qid": "Q651923",
+   "label": "Young Frankenstein",
+   "imdb": "tt0072431",
+   "image": "https://image.tmdb.org/t/p/w500/c6335WJCZO8NK5wehHk5sA9Cypv.jpg",
+   "type": "film",
+   "year": "1974",
+   "directors": [
+    "Mel Brooks"
+   ],
+   "genres": [
+    "film based on a novel",
+    "science fiction film",
+    "gothic horror film"
+   ],
+   "rating": 3.01,
+   "backdrop": "https://image.tmdb.org/t/p/w1280/rsI82F7DadIQcrZyPbuwmkhN5ty.jpg"
+  },
+  {
+   "qid": "Q162672",
+   "label": "Carrie",
+   "imdb": "tt0074285",
+   "image": "https://image.tmdb.org/t/p/w500/uc3OvgmbnYaS5Y0BOjSmC1EmSz1.jpg",
+   "type": "film",
+   "year": "1976",
+   "directors": [
+    "Brian De Palma"
+   ],
+   "genres": [
+    "drama film",
+    "psychological horror film",
+    "melodrama"
+   ],
+   "rating": 3.31,
+   "backdrop": "https://image.tmdb.org/t/p/w1280/zwJFfKQdfiptK2GY6N8GkZFrAxJ.jpg"
+  },
+  {
+   "qid": "Q607179",
+   "label": "Rosemary's Baby",
+   "imdb": "tt0063522",
+   "image": "https://image.tmdb.org/t/p/w500/uYgvlHceRFjAFbsNeMInYcLZLUb.jpg",
+   "type": "film",
+   "year": "1968",
+   "directors": [
+    "Roman Polanski"
+   ],
+   "genres": [
+    "horror film",
+    "psychological horror",
+    "Christmas film"
+   ],
+   "rating": 3.95,
+   "backdrop": "https://image.tmdb.org/t/p/w1280/qszuXKhzYR24oRpsmh7eZaPbvL8.jpg"
+  }
+ ],
+ "seeds": [],
+ "rewritten": null,
+ "sparql": null,
+ "trace": [
+  "[responser] Detected recommendation question",
+  "[recommender] No seed titles found, trying theme-based search",
+  "[recommender] Theme-based search - Companies: [], Genres: ['horror film'], Years: None",
+  "[recommender] Found 1201 theme-based candidates",
+  "[responser] Recommendation query took 0.578s"
+ ],
+ "latency_ms": 578
+}

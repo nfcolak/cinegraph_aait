@@ -1,0 +1,1032 @@
+/*
+  Film, person, catalogue and about pages (design.md section 5): hero band, section tabs, ledger,
+  ask chips, stat box, catalogue toolbar and the drawn pipeline.
+  Shared pieces (tiles, tags, kv ledger, pills) live in components.css and the page frame
+  (.page-body) lives in shell.css.
+*/
+
+/* the page content is centred at --page-max; bands run full width and pad themselves to the same edge */
+.page {
+  --page-max: 1280px;
+  --page-pad: max(var(--gutter), calc((100% - var(--page-max)) / 2 + var(--gutter)));
+  --tabs-h: 46px;
+  min-height: 100%;
+}
+
+/* ---------------------------------------------------------------- hero band */
+
+.hero-band {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-2);
+}
+
+/* the still, blurred and darkened; the overlay keeps text above AA wherever the picture is bright */
+.hero-band-bg {
+  position: absolute;
+  inset: -40px;
+  z-index: -2;
+  width: calc(100% + 80px);
+  max-width: none;
+  height: calc(100% + 80px);
+  object-fit: cover;
+  filter: blur(26px) brightness(0.5) saturate(1.1);
+}
+
+.hero-band::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(to top, var(--bg), transparent 45%),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--bg) 94%, transparent),
+      color-mix(in srgb, var(--bg) 80%, transparent) 60%,
+      color-mix(in srgb, var(--bg) 55%, transparent)
+    );
+}
+
+.hero-band-inner {
+  display: flex;
+  align-items: flex-end;
+  gap: 28px;
+  padding: 36px var(--page-pad) 30px;
+}
+
+.hero-band-art {
+  flex: 0 0 auto;
+  width: clamp(104px, 14vw, 172px);
+}
+
+.hero-band-art img,
+.hero-art-blank {
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--r-poster);
+  object-fit: cover;
+  background: var(--panel-2);
+  box-shadow: 0 0 0 1px var(--line-2);
+}
+
+.hero-art-blank {
+  display: grid;
+  place-items: center;
+  padding: 10px;
+  color: var(--text-2);
+  font-size: var(--fs-body);
+  font-weight: 600;
+  text-align: center;
+}
+
+.hero-art-initial {
+  font-size: 44px;
+}
+
+.hero-band-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.hero-band-kicker,
+.page-kicker {
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hero-band-title {
+  font-size: clamp(26px, 4vw, 40px);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+}
+
+.hero-band-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 70ch;
+  color: var(--text-2);
+  font-size: var(--fs-read);
+  line-height: var(--lh-body);
+}
+
+.hero-band-meta a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.hero-band-meta a:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.hero-tags,
+.hero-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.hero-tags .tag,
+.hero-link {
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+}
+
+.hero-link {
+  text-decoration: none;
+  transition:
+    border-color var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
+}
+
+.hero-link:hover {
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+
+.hero-band-skeleton {
+  min-height: 250px;
+}
+
+.hero-band-art.skeleton-media {
+  aspect-ratio: 2 / 3;
+}
+
+.hero-skeleton-title {
+  width: 55%;
+  height: 28px;
+}
+
+/* ---------------------------------------------------------------- stat box */
+
+.stat-box {
+  display: flex;
+  flex-wrap: wrap;
+  width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-panel);
+  background: color-mix(in srgb, var(--panel) 82%, transparent);
+}
+
+.stat-box > div {
+  flex: 1 1 auto;
+  padding: 10px 16px;
+  border-right: 1px solid var(--line);
+}
+
+.stat-box > div:last-child {
+  border-right: 0;
+}
+
+.stat-box dt {
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: var(--fs-label-sm);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.stat-box dd {
+  margin-top: 2px;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------------- ask chips */
+
+.ask-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 14px var(--page-pad);
+}
+
+.ask-chips-label {
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: var(--fs-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ask-chips ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ask-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 11px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-control);
+  background: var(--panel);
+  color: var(--text-2);
+  font-size: var(--fs-small);
+  text-decoration: none;
+  transition:
+    border-color var(--t-base) var(--ease),
+    background-color var(--t-base) var(--ease),
+    color var(--t-base) var(--ease);
+}
+
+.ask-chip span {
+  color: var(--accent);
+  font-family: var(--mono);
+  font-weight: 600;
+}
+
+.ask-chip:hover {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+/* ---------------------------------------------------------------- section tabs */
+
+/* sticky under the top bar while #sheet-body scrolls */
+.section-tabs {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  padding: 0 var(--page-pad);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg-2) 94%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.section-tabs-row {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.section-tab {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--tabs-h);
+  padding: 0 12px;
+  color: var(--text-3);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color var(--t-fast) var(--ease);
+}
+
+.section-tab:hover,
+.section-tab[aria-current="location"] {
+  color: var(--text);
+}
+
+.section-tab[aria-current="location"]::after {
+  content: "";
+  position: absolute;
+  right: 10px;
+  bottom: 0;
+  left: 10px;
+  height: 2px;
+  background: var(--accent);
+}
+
+.section-tab span {
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: var(--fs-label-sm);
+}
+
+.section-tab:focus-visible {
+  outline-offset: -3px;
+}
+
+/* ---------------------------------------------------------------- body grid and ledger */
+
+.page-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  align-items: start;
+  column-gap: 40px;
+  padding: 28px var(--page-pad) 64px;
+}
+
+.page-grid-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.page-grid > * {
+  grid-column: 1;
+  min-width: 0;
+}
+
+.block {
+  margin-bottom: 38px;
+  scroll-margin-top: calc(var(--tabs-h) + 14px);
+}
+
+/* the ledger spans every row so it stays beside the sections while it sticks */
+.page-grid > .ledger {
+  grid-column: 2;
+  grid-row: 1 / span 24;
+  position: sticky;
+  top: calc(var(--tabs-h) + 16px);
+  max-height: calc(100dvh - var(--topbar) - var(--tabs-h) - 32px);
+  overflow-y: auto;
+}
+
+.ledger {
+  padding: 14px 16px 6px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-panel);
+  background: var(--panel);
+  scrollbar-color: var(--line-2) transparent;
+  scrollbar-width: thin;
+}
+
+.ledger-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: var(--fs-label);
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.ledger-mark {
+  width: 7px;
+  height: 7px;
+  border-radius: calc(var(--r-tag) / 2);
+  background: var(--red);
+}
+
+.ledger-count {
+  margin-left: auto;
+  padding: 1px 7px;
+  border: 1px solid var(--red-line);
+  border-radius: var(--r-tag);
+  background: var(--red-soft);
+  color: var(--red);
+  letter-spacing: 0.02em;
+}
+
+.ledger .kv > div {
+  grid-template-columns: minmax(78px, 108px) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.ledger .kv > div:last-child {
+  border-bottom: 0;
+}
+
+/* the P-code goes under its label so a long label never runs into the value column */
+.ledger .kv dt {
+  overflow-wrap: anywhere;
+}
+
+.ledger .kv dt code {
+  display: block;
+  margin: 2px 0 0;
+}
+
+.ledger .kv dd {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+/* ---------------------------------------------------------------- page text */
+
+.lede {
+  max-width: 60ch;
+  font-size: var(--fs-read);
+  line-height: var(--lh-body);
+}
+
+.lede-large {
+  max-width: 36ch;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.02em;
+}
+
+.overview-sub {
+  margin-top: 10px;
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.prose {
+  max-width: 68ch;
+  color: var(--text-2);
+  font-size: 14.5px;
+  line-height: 1.65;
+}
+
+.prose + .prose {
+  margin-top: 10px;
+}
+
+.prose a,
+.link-row a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.prose a:hover,
+.link-row a:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 14px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.kv-inline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 28px;
+  margin-top: 18px;
+}
+
+.kv-inline > div {
+  display: block;
+  padding: 0;
+  border: 0;
+}
+
+.kv-inline dd a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+/* ---------------------------------------------------------------- tile overlay (opt in with .tiles-over) */
+
+.tiles-over .tile-art {
+  position: relative;
+}
+
+.tile-over {
+  display: none;
+}
+
+.tiles-over .tile-over {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 22px 8px 7px;
+  background: linear-gradient(to top, color-mix(in srgb, var(--bg) 94%, transparent) 25%, transparent);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 11px;
+  opacity: 0;
+  transform: translateY(4px);
+  transition:
+    opacity var(--t-base) var(--ease),
+    transform var(--t-base) var(--ease);
+}
+
+.tiles-over .tile-over span:last-child:not(:first-child) {
+  color: var(--accent);
+}
+
+.tiles-over .tile-link:hover .tile-over,
+.tiles-over .tile-link:focus-visible .tile-over {
+  opacity: 1;
+  transform: none;
+}
+
+/* no hover on touch screens: keep the year and rating visible */
+@media (hover: none) {
+  .tiles-over .tile-over {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------------------------------------------------------------- catalogue */
+
+.catalog-wrap {
+  padding-right: var(--page-pad);
+  padding-left: var(--page-pad);
+}
+
+.catalog-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 24px;
+  padding-top: 28px;
+  padding-bottom: 16px;
+}
+
+.catalog-head h1 {
+  font-size: var(--fs-title);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.catalog-count {
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.catalog-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--bg-2) 94%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.catalog-toolbar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+}
+
+.catalog-toolbar .pills {
+  margin: 0;
+}
+
+.catalog-showing {
+  margin-left: auto;
+}
+
+.search {
+  flex: 0 1 340px;
+}
+
+.search input {
+  width: 100%;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--line-3);
+  border-radius: var(--r-control);
+  background: var(--input);
+  color: var(--text);
+  font-size: 13.5px;
+}
+
+.search input::placeholder {
+  color: var(--text-3);
+}
+
+.search input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+
+.catalog-body {
+  padding-top: 22px;
+  padding-bottom: 64px;
+}
+
+.catalog-grid {
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 22px 14px;
+}
+
+/* people hits: one row that scrolls inside its own box */
+.people-hits {
+  margin-bottom: 28px;
+}
+
+.people-row {
+  display: flex;
+  gap: 12px;
+  overflow-x: auto;
+  /* room for the tile ring and focus outline inside the scroller; the margin cancels it */
+  margin: -4px -4px 0;
+  padding: 4px 4px 12px;
+  scrollbar-color: var(--line-2) transparent;
+  scrollbar-width: thin;
+}
+
+.people-row li {
+  flex: 0 0 96px;
+}
+
+.catalog-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 18px 0 8px;
+}
+
+.catalog-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.more {
+  display: flex;
+  justify-content: center;
+  margin-top: 28px;
+}
+
+/* ---------------------------------------------------------------- about */
+
+.about-intro {
+  padding: 40px var(--page-pad) 30px;
+}
+
+.about-title {
+  margin: 10px 0 14px;
+  font-size: var(--fs-display);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+}
+
+.about-intro .stat-box {
+  width: 100%;
+  margin-top: 24px;
+}
+
+.about-body {
+  padding: 28px var(--page-pad) 64px;
+}
+
+.about-body .block {
+  max-width: 1040px;
+}
+
+/* the answer pipeline: step cards joined by red connectors, like the evidence graph */
+.flow {
+  --link: 36px;
+  --bus: 22px;
+  display: flex;
+  align-items: center;
+  gap: var(--link);
+  margin-top: 22px;
+  padding-top: 24px;
+}
+
+.flow > li {
+  position: relative;
+}
+
+.flow-step {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 14px 14px 16px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-panel);
+  background: var(--panel);
+}
+
+.flow-end {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.flow-n,
+.flow-route-n {
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: var(--fs-label-sm);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.flow-step h3 {
+  margin: 4px 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.flow-step p {
+  color: var(--text-2);
+  font-size: var(--fs-small);
+  line-height: 1.5;
+}
+
+/* connector and arrowhead from each item to the next */
+.flow > li:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 100%;
+  width: var(--link);
+  height: 2px;
+  margin: -1px 0 0;
+  background: var(--red);
+}
+
+.flow > li:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: calc(100% + var(--link) - 7px);
+  z-index: 1;
+  margin: -5px 0 0;
+  border-style: solid;
+  border-width: 5px 0 5px 7px;
+  border-color: transparent transparent transparent var(--red);
+}
+
+/* the four pipelines hang between two red buses */
+.flow-fan {
+  flex: 1.3 1 0;
+  min-width: 0;
+  padding: 0 var(--bus);
+}
+
+.flow-fan > .flow-n {
+  position: absolute;
+  top: -22px;
+  left: var(--bus);
+}
+
+.flow-routes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.flow-route {
+  position: relative;
+}
+
+.flow-card {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line-2);
+  border-left: 3px solid var(--route);
+  border-radius: var(--r-panel);
+  background: var(--panel);
+}
+
+.flow-route-n {
+  color: var(--route);
+}
+
+.flow-card h3 {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.flow-card p {
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: var(--fs-label);
+}
+
+/* left bus and stub on the route, right bus and stub on its card */
+.flow-route::before,
+.flow-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: -8px;
+  width: 2px;
+  background: var(--red);
+}
+
+.flow-route::before {
+  left: calc(-1 * var(--bus));
+}
+
+.flow-card::before {
+  right: calc(-1 * var(--bus));
+}
+
+.flow-route:first-child::before,
+.flow-route:first-child .flow-card::before {
+  top: 50%;
+}
+
+.flow-route:last-child::before,
+.flow-route:last-child .flow-card::before {
+  bottom: 50%;
+}
+
+.flow-route::after,
+.flow-card::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  width: var(--bus);
+  height: 2px;
+  margin-top: -1px;
+  background: var(--red);
+}
+
+.flow-route::after {
+  left: calc(-1 * var(--bus));
+}
+
+.flow-card::after {
+  right: calc(-1 * var(--bus));
+}
+
+.pipeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.pipeline li {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr);
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--route);
+  border-radius: var(--r-panel);
+  background: var(--panel);
+}
+
+.pipeline-n {
+  color: var(--route);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.pipeline h3 {
+  margin-bottom: 4px;
+  font-size: 15.5px;
+  font-weight: 600;
+}
+
+.pipeline p {
+  max-width: 68ch;
+  color: var(--text-2);
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+
+/* ---------------------------------------------------------------- narrower screens */
+
+@media (max-width: 980px) {
+  .page-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .page-grid > .ledger {
+    grid-column: 1;
+    grid-row: auto;
+    position: static;
+    max-height: none;
+    margin-bottom: 38px;
+  }
+
+  /* the ledger moves under the first section (the overview) */
+  .ledger-after-first > * {
+    order: 2;
+  }
+
+  .ledger-after-first > :first-child {
+    order: 0;
+  }
+
+  .ledger-after-first > .ledger {
+    order: 1;
+  }
+
+  .hero-band-inner {
+    padding-top: 28px;
+  }
+}
+
+/* the pipeline stacks vertically: arrows point down and the buses fold into the cards */
+@media (max-width: 900px) {
+  .flow {
+    --link: 28px;
+    flex-direction: column;
+    align-items: stretch;
+    padding-top: 0;
+  }
+
+  .flow > li:not(:last-child)::after {
+    top: 100%;
+    left: 50%;
+    width: 2px;
+    height: var(--link);
+    margin: 0 0 0 -1px;
+  }
+
+  .flow > li:not(:last-child)::before {
+    top: calc(100% + var(--link) - 7px);
+    left: 50%;
+    margin: 0 0 0 -5px;
+    border-width: 7px 5px 0;
+    border-color: var(--red) transparent transparent;
+  }
+
+  .flow-fan {
+    padding: 0;
+  }
+
+  .flow-fan > .flow-n {
+    position: static;
+    display: block;
+    margin-bottom: 8px;
+  }
+
+  .flow-route::before,
+  .flow-route::after,
+  .flow-card::before,
+  .flow-card::after {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .hero-band-inner {
+    align-items: flex-start;
+    gap: 14px;
+    padding-bottom: 22px;
+  }
+
+  .hero-band-art {
+    width: 92px;
+  }
+
+  .ask-chips {
+    padding-top: 12px;
+    padding-bottom: 12px;
+  }
+
+  .catalog-grid {
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  }
+
+  .search {
+    flex-basis: 100%;
+  }
+
+  .catalog-toolbar .pills {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .catalog-toolbar .pills button {
+    white-space: nowrap;
+  }
+
+  .catalog-showing {
+    margin-left: 0;
+  }
+
+  .stat-box > div {
+    padding: 8px 12px;
+  }
+
+  .stat-box dd {
+    font-size: 18px;
+  }
+}

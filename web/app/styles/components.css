@@ -1,0 +1,593 @@
+/*
+  Shared components. Class names are stable: the ask view and every page rely on them.
+  Tiles, people, strips, tags, chips, segmented control, buttons, notes, key-value ledger,
+  section titles, skeletons and the accessibility utilities.
+*/
+
+/* ---------------------------------------------------------------- utilities and focus */
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.skip-link {
+  position: fixed;
+  top: -60px;
+  left: 12px;
+  z-index: 100;
+  padding: 8px 12px;
+  border-radius: var(--r-control);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.skip-link:focus {
+  top: 12px;
+}
+
+.muted {
+  color: var(--text-3);
+}
+
+/* route colour: panels, tabs and tags read --route */
+.route-tab-factual .route-dot,
+.tag-factual,
+.route-factual {
+  --route: var(--route-factual);
+}
+
+.route-tab-prediction .route-dot,
+.tag-prediction,
+.route-prediction {
+  --route: var(--route-prediction);
+}
+
+.route-tab-recommendation .route-dot,
+.tag-recommendation,
+.route-recommendation {
+  --route: var(--route-recommendation);
+}
+
+.route-tab-multimedia .route-dot,
+.tag-multimedia,
+.route-multimedia {
+  --route: var(--route-multimedia);
+}
+
+.tag-miss,
+.route-miss {
+  --route: var(--route-miss);
+}
+
+.route {
+  color: var(--route, var(--text));
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------------- tiles */
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+  gap: 14px 10px;
+}
+
+.tiles-large {
+  grid-template-columns: repeat(auto-fill, minmax(126px, 1fr));
+}
+
+.tile {
+  min-width: 0;
+}
+
+.tile-link {
+  display: block;
+  text-decoration: none;
+}
+
+/* 2:3 poster in a 1 px line ring that becomes a 2 px amber ring on hover */
+.tile-art {
+  overflow: hidden;
+  aspect-ratio: 2 / 3;
+  border-radius: var(--r-poster);
+  background: var(--panel-2);
+  box-shadow: 0 0 0 1px var(--line);
+  transition: box-shadow var(--t-base) var(--ease);
+}
+
+.tile-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.5s var(--ease);
+}
+
+.tile-link:hover .tile-art,
+.tile-link:focus-visible .tile-art {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.tile-link:hover .tile-art img {
+  transform: scale(1.04);
+}
+
+.tile-link:focus-visible {
+  outline: 0;
+}
+
+.tile-blank {
+  display: grid;
+  height: 100%;
+  place-items: center;
+  padding: 10px;
+  color: var(--text-2);
+  font-size: 12px;
+  text-align: center;
+}
+
+.tile-title {
+  margin-top: 6px;
+  color: var(--text);
+  font-size: var(--fs-small);
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.tile-meta {
+  margin-top: 1px;
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: var(--fs-label-sm);
+}
+
+.tile-skeleton {
+  aspect-ratio: 2 / 3;
+  border-radius: var(--r-poster);
+  background: var(--panel-2);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+/* ---------------------------------------------------------------- people */
+
+.people {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+  gap: 14px 10px;
+}
+
+.person-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--text);
+  font-size: var(--fs-small);
+  font-weight: 500;
+  line-height: 1.3;
+  text-decoration: none;
+}
+
+/* 3:4 portrait; a blank tile shows the initial */
+.person-tile img,
+.person-tile-blank {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  border-radius: var(--r-poster);
+  object-fit: cover;
+  background: var(--panel-2);
+  box-shadow: 0 0 0 1px var(--line);
+  transition: box-shadow var(--t-base) var(--ease);
+}
+
+.person-head-blank,
+.person-tile-blank {
+  display: grid;
+  place-items: center;
+  background: var(--panel-2);
+  color: var(--text-3);
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.person-tile:hover img,
+.person-tile:hover .person-tile-blank,
+.person-tile:focus-visible img,
+.person-tile:focus-visible .person-tile-blank {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.person-tile:hover span,
+.person-tile:focus-visible span {
+  color: var(--accent);
+}
+
+.person-tile:focus-visible {
+  outline: 0;
+}
+
+/* ---------------------------------------------------------------- strip */
+
+/* a horizontal scroller inside its own box: the page never scrolls sideways */
+.strip {
+  display: flex;
+  gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+  /* room inside the scroller so the 2 px focus ring plus offset of a link is not clipped; the margin cancels it */
+  margin: -4px -4px 0;
+  padding: 4px 4px 12px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-color: var(--line-2) transparent;
+  scrollbar-width: thin;
+}
+
+.strip li {
+  flex: 0 0 auto;
+}
+
+.strip img {
+  width: auto;
+  border-radius: var(--r-poster);
+}
+
+.strip-still img {
+  height: clamp(130px, 14vw, 180px);
+}
+
+.strip-poster img,
+.strip-portrait img {
+  height: clamp(160px, 16vw, 220px);
+}
+
+/* ---------------------------------------------------------------- tags */
+
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-tag);
+  background: var(--scrim);
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: var(--fs-label);
+}
+
+/* filled with the route colour */
+.tag-route {
+  border-color: transparent;
+  background: var(--route);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+
+/* red outline that fills on hover or when active */
+.tag-action {
+  margin-left: auto;
+  border-color: var(--red-line);
+  background: var(--red-soft);
+  color: var(--red);
+  transition:
+    background-color var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
+}
+
+.tag-action svg {
+  width: 13px;
+  height: 13px;
+}
+
+.tag-action:hover,
+.tag-action.active {
+  background: var(--red);
+  color: var(--on-accent);
+}
+
+/* ---------------------------------------------------------------- chips */
+
+.ex-chip {
+  flex: 0 0 auto;
+  padding: 6px 11px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-control);
+  background: var(--panel);
+  color: var(--text-2);
+  font-size: var(--fs-small);
+  white-space: nowrap;
+  transition:
+    border-color var(--t-base) var(--ease),
+    background-color var(--t-base) var(--ease),
+    color var(--t-base) var(--ease);
+}
+
+.ex-chip:hover:not(:disabled) {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.ex-chip:disabled {
+  opacity: 0.5;
+}
+
+.chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.topic-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-tag);
+  background: var(--panel-2);
+  color: var(--text-2);
+  font-size: 12px;
+  text-decoration: none;
+}
+
+a.topic-chip:hover {
+  border-color: var(--accent-line);
+  color: var(--accent);
+}
+
+/* ---------------------------------------------------------------- segmented control and buttons */
+
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  width: fit-content;
+  max-width: 100%;
+  margin-bottom: 14px;
+  padding: 3px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-control);
+  background: var(--panel);
+}
+
+.pills button {
+  padding: 6px 11px;
+  border-radius: var(--r-tag);
+  color: var(--text-3);
+  font-size: var(--fs-small);
+  font-weight: 500;
+  transition:
+    background-color var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
+}
+
+.pills button:hover {
+  color: var(--text);
+}
+
+/* the selected item is filled amber */
+.pills button[aria-checked="true"],
+.pills button[aria-selected="true"] {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.pills button span {
+  margin-left: 4px;
+  opacity: 0.6;
+}
+
+/* amber outline button, also usable on links */
+.ghost-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-control);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition:
+    background-color var(--t-base) var(--ease),
+    color var(--t-base) var(--ease);
+}
+
+.ghost-button:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.ghost-button:disabled {
+  opacity: 0.4;
+}
+
+/* mono text link */
+.text-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  transition: color var(--t-fast) var(--ease);
+}
+
+.text-btn:hover {
+  color: var(--text);
+}
+
+.text-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* ---------------------------------------------------------------- notes, errors, empty */
+
+.note {
+  max-width: 68ch;
+  padding: 8px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-control);
+  background: var(--scrim);
+  color: var(--text-2);
+  font-size: var(--fs-small);
+  line-height: 1.5;
+}
+
+/* predictions are marked violet */
+.note-mark {
+  border-color: var(--violet-line);
+  color: var(--violet-ink);
+}
+
+.error {
+  padding: 8px 12px;
+  border: 1px solid var(--red-line);
+  border-radius: var(--r-control);
+  background: var(--red-soft);
+  color: var(--bad);
+  font-size: 13px;
+}
+
+.empty {
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+/* ---------------------------------------------------------------- key-value ledger */
+
+.kv > div {
+  display: grid;
+  grid-template-columns: minmax(120px, 200px) minmax(0, 1fr);
+  gap: 16px;
+  padding: 9px 0;
+  border-bottom: 1px dashed var(--line);
+}
+
+/* mono uppercase label with a red P-code */
+.kv dt {
+  padding-top: 2px;
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: var(--fs-label);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.kv dt code {
+  margin-left: 4px;
+  color: var(--red);
+  font-size: var(--fs-label-sm);
+  text-transform: none;
+}
+
+.kv dd {
+  min-width: 0;
+  font-size: 13.5px;
+}
+
+.kv dd a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.kv dd a:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ---------------------------------------------------------------- section title */
+
+/* mono uppercase label, count on the right, hairline below */
+.block-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-3);
+  font-family: var(--mono);
+  font-size: var(--fs-label);
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.block-title span {
+  color: var(--text-3);
+  letter-spacing: 0.04em;
+}
+
+/* ---------------------------------------------------------------- skeletons */
+
+.skeleton-line {
+  display: block;
+  width: 80%;
+  height: 12px;
+  margin: 10px 0;
+  border-radius: var(--r-tag);
+  background: var(--panel-2);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.skeleton-short {
+  width: 45%;
+}
+
+.skeleton-media {
+  aspect-ratio: 16 / 7;
+  border-radius: var(--r-panel);
+  background: var(--panel-2);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* ---------------------------------------------------------------- narrower screens */
+
+@media (max-width: 640px) {
+  .tag-action {
+    margin-left: 0;
+  }
+
+  .kv > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 3px;
+  }
+
+  .tiles {
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  }
+}
+
+/* ---------------------------------------------------------------- reduced motion */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

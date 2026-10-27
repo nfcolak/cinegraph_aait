@@ -1,0 +1,67 @@
+{
+ "message": "Who directed Inception?",
+ "answer": "The movie was directed by Christopher Nolan.",
+ "ok": true,
+ "note": null,
+ "hint": null,
+ "suggestions": [],
+ "suggestions_title": "Films with a similar title in the graph",
+ "alternatives": [],
+ "reading": {
+  "relation": "director",
+  "subject": "Inception",
+  "subject_kind": "film",
+  "via_count": 0,
+  "parts": [
+   {
+    "relation": "director",
+    "answer": "The movie was directed by Christopher Nolan."
+   }
+  ]
+ },
+ "route": "factual",
+ "image": null,
+ "subject": {
+  "qid": "Q25188",
+  "label": "Inception",
+  "imdb": "tt1375666",
+  "image": "https://image.tmdb.org/t/p/w500/ljsZTbVsrQSqZgWeep2B1QiDKuh.jpg",
+  "type": "film",
+  "year": "2010",
+  "directors": [
+   "Christopher Nolan"
+  ],
+  "genres": [
+   "adventure film",
+   "drama film",
+   "science fiction action film"
+  ],
+  "rating": 3.84,
+  "backdrop": "https://image.tmdb.org/t/p/w1280/gqby0RhyehP3uRrzmdyUZ0CgPPe.jpg"
+ },
+ "relation": "director",
+ "property": "P57",
+ "inverse": false,
+ "objects": [
+  "Christopher Nolan"
+ ],
+ "count": 1,
+ "cards": [
+  {
+   "qid": "Q25191",
+   "label": "Christopher Nolan",
+   "imdb": "nm0634240",
+   "image": "https://image.tmdb.org/t/p/w500/xuAIuYSmsUzKlUMBFGVZaWsY3DZ.jpg",
+   "type": "person"
+  }
+ ],
+ "seeds": [],
+ "rewritten": null,
+ "sparql": "SELECT DISTINCT ?obj ?label\nWHERE {\n  wd:Q25188 <http://www.wikidata.org/prop/direct/P57> ?obj .\n  OPTIONAL {\n    ?obj rdfs:label ?label .\n    FILTER (lang(?label) = \"en\")\n  }\n}",
+ "trace": [
+  "[responser] Answered through intent: director / Inception",
+  "[responser] Factual query took 0.007s",
+  "[responser] Total response time: 0.015s"
+ ],
+ "latency_ms": 15
+}

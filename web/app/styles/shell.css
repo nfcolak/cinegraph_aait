@@ -1,0 +1,350 @@
+/*
+  Shell: the app frame, the top bar with its film-strip edge, the LIVE pill,
+  the cold-start banner, the scrolling page body and the 404 page.
+*/
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+}
+
+/* ---------------------------------------------------------------- top bar */
+
+.topbar {
+  position: relative;
+  z-index: 20;
+  display: flex;
+  flex: 0 0 var(--topbar);
+  align-items: center;
+  gap: 22px;
+  height: var(--topbar);
+  padding: 0 20px;
+  background: var(--bg-2);
+}
+
+/* film-strip perforation along the bottom edge: amber dashes over a hairline */
+.topbar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 10px, var(--accent-perf) 10px 16px) 0 0 / 100% 2px no-repeat,
+    linear-gradient(var(--line), var(--line)) 0 3px / 100% 1px no-repeat;
+  pointer-events: none;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+}
+
+.brand-mark {
+  display: flex;
+  color: var(--text);
+}
+
+.brand-name {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.brand-name span {
+  color: var(--accent);
+}
+
+.topnav {
+  display: flex;
+  align-items: stretch;
+  align-self: stretch;
+  gap: 4px;
+}
+
+.topnav-link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 10px;
+  color: var(--text-3);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color var(--t-fast) var(--ease);
+}
+
+.topnav-link:hover {
+  color: var(--text);
+}
+
+.topnav-link[aria-current="page"] {
+  color: var(--text);
+}
+
+.topnav-link[aria-current="page"]::after {
+  content: "";
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 6px;
+  height: 2px;
+  border-radius: var(--r-hair);
+  background: var(--accent);
+}
+
+.topbar-crumb {
+  overflow: hidden;
+  max-width: 34ch;
+  padding-left: 14px;
+  border-left: 1px solid var(--line-2);
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.topbar-spacer {
+  flex: 1;
+}
+
+/* ---------------------------------------------------------------- LIVE pill */
+
+.live-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 12px 0 10px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-control);
+  background: var(--panel);
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-4);
+}
+
+.live-word {
+  color: var(--text);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+/* ready: a red recording dot */
+.live-ready .live-dot {
+  background: var(--red);
+  box-shadow: 0 0 0 3px var(--red-glow);
+  animation: rec 1.6s ease-in-out infinite;
+}
+
+/* waking: an amber dot and the elapsed m:ss */
+.live-waking .live-dot {
+  background: var(--accent);
+  animation: boot-pulse 1.1s ease-in-out infinite;
+}
+
+/* checking: the first answer of /api/health is still on its way, so only a quiet dot */
+.live-checking {
+  padding: 0 10px;
+}
+
+.live-offline .live-dot {
+  background: var(--bad);
+}
+
+@keyframes rec {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* ---------------------------------------------------------------- cold-start banner */
+
+.boot-banner {
+  flex: 0 0 auto;
+  margin: 14px var(--gutter) 0;
+  padding: 14px 16px 12px;
+  border: 1px solid var(--accent-line);
+  border-radius: var(--r-panel);
+  background: var(--accent-soft);
+}
+
+.boot-banner.failed {
+  border-color: var(--red-line);
+  background: var(--red-soft);
+}
+
+.boot-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.boot-title {
+  color: var(--accent);
+  font-size: var(--fs-body);
+  font-weight: 600;
+}
+
+.boot-banner.failed .boot-title {
+  color: var(--bad);
+}
+
+.boot-clock {
+  margin-left: auto;
+  color: var(--text-2);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.boot-text {
+  margin-top: 6px;
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.boot-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--accent-line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: boot-spin 0.9s linear infinite;
+}
+
+.boot-bar {
+  height: 3px;
+  margin-top: 10px;
+  overflow: hidden;
+  border-radius: var(--r-hair);
+  background: var(--track);
+}
+
+.boot-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 1s linear;
+}
+
+@keyframes boot-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes boot-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* ---------------------------------------------------------------- page frame (Sheet) */
+
+.page-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--bg);
+}
+
+.page-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.page-body::-webkit-scrollbar-thumb {
+  border-radius: var(--r-pill);
+  background: var(--line-2);
+}
+
+/* ---------------------------------------------------------------- 404 */
+
+.notfound {
+  max-width: 560px;
+  padding: 72px var(--gutter) 64px;
+}
+
+.notfound-code {
+  color: var(--red);
+  font-family: var(--mono);
+  font-size: var(--fs-label);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.notfound-title {
+  margin-top: 12px;
+  font-size: var(--fs-title);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+.notfound-text {
+  margin-top: 12px;
+  color: var(--text-2);
+  font-size: var(--fs-read);
+  line-height: var(--lh-body);
+}
+
+.notfound-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+/* ---------------------------------------------------------------- narrower screens */
+
+@media (max-width: 1200px) {
+  .live-text {
+    display: none;
+  }
+}
+
+@media (max-width: 980px) {
+  .topbar {
+    gap: 12px;
+    padding: 0 14px;
+  }
+
+  .topbar-crumb {
+    display: none;
+  }
+
+  /* the nav scrolls inside its box; an amber edge shows on the side that still has links hidden */
+  .topnav {
+    overflow-x: auto;
+    scrollbar-width: none;
+    background:
+      linear-gradient(90deg, var(--bg-2), var(--bg-2)) left center / 18px 100% no-repeat local,
+      linear-gradient(270deg, var(--bg-2), var(--bg-2)) right center / 18px 100% no-repeat local,
+      linear-gradient(90deg, var(--accent-line), transparent) left center / 18px 100% no-repeat scroll,
+      linear-gradient(270deg, var(--accent-line), transparent) right center / 18px 100% no-repeat scroll;
+  }
+}
+
+@media (max-width: 640px) {
+  .brand-name {
+    display: none;
+  }
+
+  .live-pill {
+    padding: 0 8px;
+  }
+}

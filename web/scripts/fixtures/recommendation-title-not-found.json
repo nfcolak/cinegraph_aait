@@ -1,0 +1,31 @@
+{
+ "message": "Given that I like A.I. Artificial Intelligence, can you recommend some movies?",
+ "answer": "I could not find A.I among the films in the knowledge graph. Check the title or name another film.",
+ "ok": true,
+ "note": null,
+ "hint": null,
+ "suggestions": [],
+ "suggestions_title": "Films with a similar title in the graph",
+ "alternatives": [],
+ "reading": null,
+ "route": "recommendation",
+ "image": null,
+ "subject": null,
+ "relation": null,
+ "property": null,
+ "inverse": false,
+ "objects": [],
+ "count": 0,
+ "cards": [],
+ "seeds": [],
+ "rewritten": null,
+ "sparql": null,
+ "trace": [
+  "[responser] Detected recommendation question",
+  "[recommender] Seed movies: ['A.I']",
+  "[recommender] Could not resolve title: A.I",
+  "[recommender] Seed titles gave nothing, trying theme-based search",
+  "[responser] Recommendation query took 0.002s"
+ ],
+ "latency_ms": 5
+}

@@ -1,8 +1,16 @@
 import type { Metadata, Viewport } from "next";
-import "./globals.css";
+import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
+import "./styles/tokens.css";
+import "./styles/shell.css";
+import "./styles/components.css";
+import "./styles/ask.css";
+import "./styles/pages.css";
 
-// Editorial system after the portfolio's Jesper gallery: black canvas, white reading sheet,
-// Helvetica Neue throughout; the film imagery carries all the colour.
+// Cinema console: warm dark panels, IBM Plex Sans for reading, IBM Plex Mono for labels
+// and data, projector amber as the accent and screen red for evidence.
+
+const sans = IBM_Plex_Sans({ subsets: ["latin"], weight: ["400", "500", "600", "700"], variable: "--font-plex-sans", display: "swap" });
+const mono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-plex-mono", display: "swap" });
 
 export const metadata: Metadata = {
   title: "CineGraph · Ask the film graph",
@@ -16,12 +24,13 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#000000",
+  themeColor: "#0e0c0a",
+  colorScheme: "dark",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${sans.variable} ${mono.variable}`}>
       <body>
         <a href="#main" className="skip-link">
           Skip to content
