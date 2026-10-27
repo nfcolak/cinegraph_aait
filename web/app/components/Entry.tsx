@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { askHref, filmHref, formatLatency, personHref, ROUTE_INFO, type EntityCard, type Reply } from "@/lib/api";
 import { FilmTile } from "./Catalog";
 
@@ -12,30 +12,41 @@ function filmMeta(card: EntityCard, omitDirector?: string): string {
   return [card.year, director].filter(Boolean).join(", ");
 }
 
-/** Letterboxd-style header: the film's still bleeds across the entry, the poster sits over its lower edge. */
+/** Gallery-card header: the film's still fills a rounded frame, its title set over the lower edge. */
 function FilmHeader({ film }: { film: EntityCard }) {
+  const href = film.qid ? filmHref(film.qid) : null;
+  const art = film.backdrop ?? film.image;
   return (
-    <div className={`film-head ${film.backdrop ? "" : "film-head-plain"}`}>
-      {film.backdrop && (
-        <div className="film-head-still" aria-hidden="true">
-          <img src={film.backdrop} alt="" />
-        </div>
-      )}
-      <div className="film-head-row">
-        {film.image && <img className="film-head-poster" src={film.image} alt={`Poster of ${film.label}`} />}
-        <div className="film-head-text">
-          <h3>
-            {film.qid ? <Link href={filmHref(film.qid)}>{film.label}</Link> : film.label}
-            {film.year && <span className="film-head-year">{film.year}</span>}
-          </h3>
-          {film.directors && film.directors.length > 0 && (
-            <p className="film-head-by">
-              Directed by <strong>{film.directors.join(" and ")}</strong>
-            </p>
-          )}
-          {film.genres && film.genres.length > 0 && <p className="film-head-genres">{film.genres.join(", ")}</p>}
-        </div>
+    <div className="feature">
+      <div className={`feature-frame ${film.backdrop ? "" : "feature-frame-poster"}`}>
+        {art && <img src={art} alt="" />}
+        <span className="feature-shade" aria-hidden="true" />
+        <h3 className="feature-name">
+          {href ? <Link href={href}>{film.label}</Link> : film.label}
+          {film.year && <small>{film.year}</small>}
+        </h3>
+        {href && (
+          <Link href={href} className="feature-go" aria-label={`Open ${film.label}`}>
+            →
+          </Link>
+        )}
       </div>
+      {((film.directors && film.directors.length > 0) || (film.genres && film.genres.length > 0)) && (
+        <dl className="kv kv-inline">
+          {film.directors && film.directors.length > 0 && (
+            <div>
+              <dt>Directed by</dt>
+              <dd>{film.directors.join(", ")}</dd>
+            </div>
+          )}
+          {film.genres && film.genres.length > 0 && (
+            <div>
+              <dt>Genre</dt>
+              <dd>{film.genres.join(", ")}</dd>
+            </div>
+          )}
+        </dl>
+      )}
     </div>
   );
 }
@@ -72,54 +83,49 @@ function PersonTile({ card }: { card: EntityCard }) {
   return (
     <li>
       <Link className="person-tile" href={card.qid ? personHref(card.qid) : "/films"}>
-      {card.image ? (
-        <img src={card.image} alt={`Portrait of ${card.label}`} loading="lazy" />
-      ) : (
-        <span className="person-tile-blank" aria-hidden="true">
-          {card.label.slice(0, 1)}
-        </span>
-      )}
-      <span>{card.label}</span>
+        {card.image ? (
+          <img src={card.image} alt={`Portrait of ${card.label}`} loading="lazy" />
+        ) : (
+          <span className="person-tile-blank" aria-hidden="true">
+            {card.label.slice(0, 1)}
+          </span>
+        )}
+        <span>{card.label}</span>
       </Link>
     </li>
   );
 }
 
 /** The triple the agent queried, written as one line: subject, property, objects. */
-function GraphPath({ reply }: { reply: Reply }) {
+function graphPath(reply: Reply): ReactNode {
   if (!reply.ok || !reply.relation || !reply.subject?.label) return null;
   const n = Math.max(reply.count, reply.objects.length);
   const objects =
-    n > 3 ? `${n} ${reply.inverse ? "titles" : "entries"}` : reply.objects.length > 0 ? reply.objects.join(", ") : reply.answer.match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? "?";
+    n > 3
+      ? `${n} ${reply.inverse ? "titles" : "entries"}`
+      : reply.objects.length > 0
+        ? reply.objects.join(", ")
+        : (reply.answer.match(/\d{4}-\d{2}-\d{2}/)?.[0] ?? "?");
   return (
-    <p className="path" aria-label="Path through the knowledge graph">
-      <span className="path-node">
-        {reply.subject.label}
-        {reply.subject.qid && <code>{reply.subject.qid}</code>}
+    <span className="path" aria-label="Path through the knowledge graph">
+      <span>
+        {reply.subject.label} {reply.subject.qid && <code>{reply.subject.qid}</code>}
       </span>
-      <span className="path-edge" data-dir={reply.inverse ? "in" : "out"}>
-        {reply.relation}
-        {reply.property && <code>{reply.property}</code>}
+      <span className="path-edge">
+        {reply.inverse ? "←" : "→"} {reply.relation} {reply.property && <code>{reply.property}</code>} {reply.inverse ? "←" : "→"}
       </span>
-      <span className="path-node">{objects}</span>
-    </p>
+      <span>{objects}</span>
+    </span>
   );
 }
 
-/** One quiet line: how the question was read. */
-function ReadAs({ reading }: { reading: NonNullable<Reply["reading"]> }) {
+/** How the question was read, in one line. */
+function readAs(reading: NonNullable<Reply["reading"]>): string | null {
   if (!reading.relation || !reading.subject) return null;
   const kind = reading.subject_kind && reading.subject_kind !== "film" ? ` (${reading.subject_kind})` : "";
   const via = reading.via_count > 0 ? `, through ${reading.via_count} ${reading.via_count === 1 ? "film" : "films"}` : "";
   const more = reading.parts.length > 1 ? `, ${reading.parts.length} questions` : "";
-  return (
-    <p className="read-as">
-      Read as: {reading.relation} of {reading.subject}
-      {kind}
-      {via}
-      {more}
-    </p>
-  );
+  return `${reading.relation} of ${reading.subject}${kind}${via}${more}`;
 }
 
 export function Entry({ reply }: { reply: Reply }) {
@@ -138,12 +144,11 @@ export function Entry({ reply }: { reply: Reply }) {
     if (kind === "poster") return pictureFilm ? filmMeta(pictureFilm) : "Poster";
     return "Portrait";
   })();
+  const read = reply.reading ? readAs(reply.reading) : null;
+  const path = reply.route !== "recommendation" && reply.route !== "multimedia" ? graphPath(reply) : null;
 
   return (
     <article className={`entry entry-${reply.route} ${reply.ok ? "" : "entry-miss"}`}>
-      {reply.ok && subject?.type === "film" && reply.route !== "multimedia" && <FilmHeader film={subject} />}
-      {reply.ok && subject?.type === "person" && reply.route !== "multimedia" && <PersonHeader person={subject} />}
-
       {reply.image ? (
         <figure className={`picture picture-${reply.image.kind}`}>
           <img src={reply.image.url} alt={`${reply.image.kind} of ${reply.image.label ?? "the requested entity"}`} />
@@ -156,44 +161,18 @@ export function Entry({ reply }: { reply: Reply }) {
         <p className={`answer ${reply.route === "prediction" ? "answer-guess" : ""}`}>{answer}</p>
       )}
 
+      {reply.ok && subject?.type === "film" && reply.route !== "multimedia" && <FilmHeader film={subject} />}
+      {reply.ok && subject?.type === "person" && reply.route !== "multimedia" && <PersonHeader person={subject} />}
+
       {reply.ok && reply.route === "prediction" && (
-        <p className="caveat">
+        <p className="note note-mark">
           A prediction, not a stored fact. The graph has no {reply.relation ?? "value"} for this film, so the agent returns the
           nearest entity in its TransE embedding space. These guesses are often wrong.
         </p>
       )}
-
-      {reply.hint && <p className="caveat">{reply.hint}</p>}
-
-      {reply.reading && <ReadAs reading={reply.reading} />}
-
-      {reply.alternatives.length > 0 && (
-        <p className="alternatives">
-          <span>Other entries named {reply.reading?.subject ?? reply.alternatives[0].label}:</span>
-          {reply.alternatives.map((alt) => (
-            <Link key={alt.qid} href={askHref(alt.ask)}>
-              {alt.year ? `${alt.label} (${alt.year})` : alt.label}
-              {alt.kind && alt.kind !== "film" ? `, ${alt.kind}` : ""}
-            </Link>
-          ))}
-        </p>
-      )}
-
+      {reply.hint && <p className="note">{reply.hint}</p>}
       {!reply.ok && !reply.hint && (
-        <p className="caveat">
-          Name the film or person as it is titled and ask one thing at a time, for example “Who directed Heat?”
-        </p>
-      )}
-
-      {reply.suggestions.length > 0 && (
-        <div className="suggestions">
-          <p>{reply.suggestions_title}:</p>
-          <ul className="tiles">
-            {reply.suggestions.map((f) => (
-              <FilmTile key={f.qid} film={f} />
-            ))}
-          </ul>
-        </div>
+        <p className="note">Name the film or person as it is titled and ask one thing at a time, for example “Who directed Heat?”</p>
       )}
 
       {reply.route === "recommendation" && reply.seeds.length > 0 && (
@@ -225,18 +204,60 @@ export function Entry({ reply }: { reply: Reply }) {
         </ul>
       )}
 
-      {reply.route !== "recommendation" && reply.route !== "multimedia" && <GraphPath reply={reply} />}
+      {reply.suggestions.length > 0 && (
+        <div className="suggestions">
+          <p className="block-title">{reply.suggestions_title}</p>
+          <ul className="tiles">
+            {reply.suggestions.map((f) => (
+              <FilmTile key={f.qid} film={f} />
+            ))}
+          </ul>
+        </div>
+      )}
 
-      <footer className="entry-foot">
-        <span className="entry-route">{reply.ok ? info.name : "No answer"}</span>
-        <span>{info.method}</span>
-        <span>{formatLatency(reply.latency_ms)}</span>
-        {(reply.trace.length > 0 || reply.sparql) && (
-          <button type="button" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-            {open ? "Hide details" : reply.sparql ? "Show query" : "Show log"}
-          </button>
+      <dl className="kv entry-meta">
+        {read && (
+          <div>
+            <dt>Read as</dt>
+            <dd>{read}</dd>
+          </div>
         )}
-      </footer>
+        {reply.alternatives.length > 0 && (
+          <div>
+            <dt>Same name</dt>
+            <dd className="alternatives">
+              {reply.alternatives.map((alt) => (
+                <Link key={alt.qid} href={askHref(alt.ask)}>
+                  {alt.year ? `${alt.label} (${alt.year})` : alt.label}
+                  {alt.kind && alt.kind !== "film" ? `, ${alt.kind}` : ""}
+                </Link>
+              ))}
+            </dd>
+          </div>
+        )}
+        {path && (
+          <div>
+            <dt>Path</dt>
+            <dd>{path}</dd>
+          </div>
+        )}
+        <div>
+          <dt>Answered by</dt>
+          <dd>
+            <span className={`route route-${reply.ok ? reply.route : "miss"}`}>{reply.ok ? info.name : "No answer"}</span>
+            {" · "}
+            {info.method}
+            {" · "}
+            {formatLatency(reply.latency_ms)}
+          </dd>
+        </div>
+      </dl>
+
+      {(reply.trace.length > 0 || reply.sparql) && (
+        <button type="button" className="ghost-button" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+          {open ? "Hide details" : reply.sparql ? "Show query" : "Show log"}
+        </button>
+      )}
 
       {open && (
         <div className="details">

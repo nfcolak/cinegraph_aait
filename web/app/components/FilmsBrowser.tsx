@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { listFilms, personHref, search, whenReady, type FilmRow, type FilmSort, type PersonRow } from "@/lib/api";
 import { FilmTile } from "./Catalog";
-import { SiteHeader } from "./SiteHeader";
+import { Sheet } from "./SiteHeader";
 
 /* eslint-disable @next/next/no-img-element */
 
@@ -75,8 +75,7 @@ export function FilmsBrowser() {
   };
 
   return (
-    <div className="app app-doc">
-      <SiteHeader />
+    <Sheet title="Films">
       <main className="catalog" id="main">
         <div className="catalog-head">
           <h1>Films</h1>
@@ -96,7 +95,7 @@ export function FilmsBrowser() {
               autoComplete="off"
             />
           </label>
-          <div className="sorts" role="radiogroup" aria-label="Sort films">
+          <div className="pills" role="radiogroup" aria-label="Sort films">
             {SORTS.map((s) => (
               <button key={s.id} type="button" role="radio" aria-checked={sort === s.id} onClick={() => setSort(s.id)}>
                 {s.label}
@@ -106,12 +105,12 @@ export function FilmsBrowser() {
         </div>
 
         {peopleHits.length > 0 && (
-          <section className="people-hits" aria-label="People">
+          <section className="block people-hits" aria-label="People">
             <h2 className="block-title">People</h2>
-            <ul>
+            <ul className="people">
               {peopleHits.map((p) => (
                 <li key={p.qid}>
-                  <Link href={personHref(p.qid)}>
+                  <Link className="person-tile" href={personHref(p.qid)}>
                     {p.image ? <img src={p.image} alt="" loading="lazy" /> : <span className="person-tile-blank">{p.label[0]}</span>}
                     <span>{p.label}</span>
                   </Link>
@@ -138,12 +137,12 @@ export function FilmsBrowser() {
 
         {total !== null && films.length < total && (
           <div className="more">
-            <button type="button" onClick={loadMore} disabled={loading}>
+            <button type="button" className="ghost-button" onClick={loadMore} disabled={loading}>
               {loading ? "Loading" : `Show more (${(total - films.length).toLocaleString("en")} left)`}
             </button>
           </div>
         )}
       </main>
-    </div>
+    </Sheet>
   );
 }

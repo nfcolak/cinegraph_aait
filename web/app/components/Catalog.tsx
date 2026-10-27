@@ -11,11 +11,7 @@ export function FilmTile({ film, sub }: { film: FilmRow; sub?: string | null }) 
     <li className="tile">
       <Link href={filmHref(film.qid)} className="tile-link">
         <div className="tile-art">
-          {film.image ? (
-            <img src={film.image} alt="" loading="lazy" />
-          ) : (
-            <span className="tile-blank">{film.label}</span>
-          )}
+          {film.image ? <img src={film.image} alt="" loading="lazy" /> : <span className="tile-blank">{film.label}</span>}
         </div>
         <p className="tile-title">{film.label}</p>
         {(sub ?? film.year) && <p className="tile-meta">{sub ?? film.year}</p>}
@@ -26,12 +22,14 @@ export function FilmTile({ film, sub }: { film: FilmRow; sub?: string | null }) 
 
 /** Horizontal strip of images that scrolls inside itself; the page never scrolls sideways. */
 export function Strip({
+  id,
   title,
   total,
   images,
   kind,
   alt,
 }: {
+  id?: string;
   title: string;
   total: number;
   images: string[];
@@ -40,7 +38,7 @@ export function Strip({
 }) {
   if (!images.length) return null;
   return (
-    <section className="strip-block">
+    <section className="block" id={id}>
       <h2 className="block-title">
         {title} <span>{total > images.length ? `${images.length} of ${total}` : total}</span>
       </h2>

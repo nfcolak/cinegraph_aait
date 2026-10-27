@@ -1,12 +1,10 @@
 import type { Metadata } from "next";
-import { SiteHeader } from "../components/SiteHeader";
+import { Reader, REPO, Sheet } from "../components/SiteHeader";
 
 export const metadata: Metadata = {
   title: "How it works · CineGraph",
   description: "How CineGraph routes a movie question to SPARQL, TransE embeddings, a recommender or an image index.",
 };
-
-const REPO = "https://github.com/nfcolak/cinegraph_aait";
 
 const ROUTES = [
   {
@@ -34,9 +32,10 @@ const ROUTES = [
     name: "Stored fact",
     body: (
       <>
-        The relation (“directed”, “composer”, “released”) maps to a Wikidata property, the film or person is matched by label
-        with typo tolerance, and a SPARQL query runs on the graph. Inverse questions (“Which films did Nolan direct?”) query the
-        other direction.
+        A rule-based parser reads the relation (“directed”, “scored”, “who played in”), the subject and any year hint, and splits
+        questions with two parts. The subject is linked to a graph entity by label with typo tolerance; characters and series
+        are answered through the films linked to them. A SPARQL query then runs on the graph, in the inverse direction for
+        questions such as “Which films did Nolan direct?”.
       </>
     ),
   },
@@ -52,83 +51,113 @@ const ROUTES = [
   },
 ];
 
+const SECTIONS = [
+  { id: "overview", label: "Overview" },
+  { id: "pipelines", label: "Pipelines" },
+  { id: "reading", label: "Reading an answer" },
+  { id: "limits", label: "Limits" },
+  { id: "credits", label: "Who built it" },
+];
+
 export default function About() {
   return (
-    <div className="app app-doc">
-      <SiteHeader />
+    <Sheet title="How it works">
+      <Reader
+        back={{ href: "/", label: "Gallery" }}
+        title="How CineGraph answers"
+        meta={[
+          { label: "Type", value: "Conversational agent · UZH AI Core project" },
+          { label: "Stack", value: "Python / RDFLib / SPARQL / TransE" },
+          {
+            label: "Source",
+            value: (
+              <a href={REPO} target="_blank" rel="noreferrer">
+                GitHub ↗
+              </a>
+            ),
+          },
+        ]}
+        sections={SECTIONS}
+      >
+        <section className="block" id="overview">
+          <p className="lede lede-large">
+            No language model writes these answers. The agent parses a question with rules, picks one of four pipelines and runs it
+            on a knowledge graph extracted from Wikidata.
+          </p>
+          <dl className="figures">
+            <div>
+              <dt>Facts in the graph</dt>
+              <dd>2,413,825</dd>
+            </div>
+            <div>
+              <dt>Entities with an English label</dt>
+              <dd>129,673</dd>
+            </div>
+            <div>
+              <dt>Entities with a TransE embedding</dt>
+              <dd>175,660</dd>
+            </div>
+            <div>
+              <dt>Films with a poster</dt>
+              <dd>12,326</dd>
+            </div>
+          </dl>
+        </section>
 
-      <main className="doc" id="main">
-        <h1>How CineGraph answers</h1>
-        <p className="lede">
-          No language model writes these answers. The agent parses a question with rules, picks one of four pipelines and runs it
-          on a knowledge graph extracted from Wikidata.
-        </p>
+        <section className="block" id="pipelines">
+          <h2 className="block-title">The order of the checks</h2>
+          <p className="prose">The agent tries the pipelines in this order and answers with the first one that matches.</p>
+          <ol className="pipeline">
+            {ROUTES.map((r, i) => (
+              <li key={r.name}>
+                <span className="pipeline-n">{String(i + 1).padStart(2, "0")}</span>
+                <div>
+                  <h3>{r.name}</h3>
+                  <p>{r.body}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </section>
 
-        <table className="facts">
-          <caption className="sr-only">What the agent works with</caption>
-          <tbody>
-            <tr>
-              <th scope="row">Facts in the graph</th>
-              <td>2,413,825</td>
-            </tr>
-            <tr>
-              <th scope="row">Entities with an English label</th>
-              <td>129,673</td>
-            </tr>
-            <tr>
-              <th scope="row">Entities with a TransE embedding</th>
-              <td>175,660</td>
-            </tr>
-            <tr>
-              <th scope="row">Films with a poster</th>
-              <td>12,326</td>
-            </tr>
-          </tbody>
-        </table>
+        <section className="block" id="reading">
+          <h2 className="block-title">Reading an answer</h2>
+          <p className="prose">
+            Under each answer, “Read as” says how the question was understood, “Path” prints the triple that was queried
+            (subject, Wikidata property and result, with their IDs) and “Answered by” names the pipeline and how long it took.
+            “Show query” opens the SPARQL query and the agent’s own log for that question.
+          </p>
+        </section>
 
-        <h2>The order of the checks</h2>
-        <p>The agent tries the pipelines in this order and answers with the first one that matches.</p>
-        <ol className="pipeline">
-          {ROUTES.map((r) => (
-            <li key={r.name}>
-              <h3>{r.name}</h3>
-              <p>{r.body}</p>
-            </li>
-          ))}
-        </ol>
+        <section className="block" id="limits">
+          <h2 className="block-title">Limits</h2>
+          <p className="prose">
+            The graph is a course snapshot of Wikidata. Recent films and some facts are missing, a few entities have no English
+            label and appear as Q-IDs, and some labels were altered on purpose for the course. Questions are matched with
+            patterns, so unusual phrasing can miss; naming the film exactly works best. Images come from TMDB’s CDN.
+          </p>
+        </section>
 
-        <h2>Reading an answer</h2>
-        <p>
-          The line under each answer names the pipeline and how long it took. Fact and prediction answers also print the triple
-          that was queried: subject, Wikidata property and result, with their IDs. “Show query” opens the SPARQL query and the
-          agent’s own log for that question.
-        </p>
-
-        <h2>Limits</h2>
-        <p>
-          The graph is a course snapshot of Wikidata. Recent films and some facts are missing, a few entities have no English
-          label and appear as Q-IDs, and some labels were altered on purpose for the course. Questions are matched with patterns,
-          so unusual phrasing can miss; naming the film exactly works best. Images come from TMDB’s CDN.
-        </p>
-
-        <h2>Who built it</h2>
-        <p>
-          Necati Furkan Çolak and Leyla Khasiyeva, University of Zurich. The agent first ran as a bot on UZH’s Speakeasy chat
-          platform; this site puts the same code behind a web interface.
-        </p>
-        <p className="doc-links">
-          <a href={REPO} target="_blank" rel="noreferrer">
-            Source on GitHub
-          </a>
-          <a
-            href={`${REPO}/blob/main/Report/Evaluation_Event_Final_Agent_SlateLeapingDeer_colakn_khasiyevl.pdf`}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Final report (PDF)
-          </a>
-        </p>
-      </main>
-    </div>
+        <section className="block" id="credits">
+          <h2 className="block-title">Who built it</h2>
+          <p className="prose">
+            Necati Furkan Çolak and Leyla Khasiyeva, University of Zurich. The agent first ran as a bot on UZH’s Speakeasy chat
+            platform; this site puts the same code behind a web interface.
+          </p>
+          <p className="link-row">
+            <a href={REPO} target="_blank" rel="noreferrer">
+              Source on GitHub ↗
+            </a>
+            <a
+              href={`${REPO}/blob/main/Report/Evaluation_Event_Final_Agent_SlateLeapingDeer_colakn_khasiyevl.pdf`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Final report (PDF) ↗
+            </a>
+          </p>
+        </section>
+      </Reader>
+    </Sheet>
   );
 }

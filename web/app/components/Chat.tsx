@@ -1,11 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type RefObject } from "react";
 import { ask, ApiError, formatCount, health, type Health, type Reply } from "@/lib/api";
 import { EXAMPLES } from "@/lib/examples";
 import { Entry } from "./Entry";
-import { PosterWall } from "./PosterWall";
-import { SiteHeader } from "./SiteHeader";
+import { Gallery } from "./Gallery";
+import { REPO, Reader, Sheet } from "./SiteHeader";
 
 type Turn =
   | { id: number; kind: "pending"; text: string }
@@ -15,6 +16,7 @@ type Turn =
 type ServerState = { phase: "checking" | "waking" | "ready" | "offline"; info?: Health };
 
 const MAX_CHARS = 300;
+const TRY = [EXAMPLES[0].questions[0], EXAMPLES[2].questions[0], EXAMPLES[3].questions[1], EXAMPLES[1].questions[0]];
 
 /** Resolve once the graph server reports ready (a cold start restores the graph in ~25 s, a fresh deploy takes ~1.5 min). */
 async function waitUntilReady(limitMs = 4 * 60_000): Promise<boolean> {
@@ -69,20 +71,11 @@ function useServerState(): ServerState {
   return state;
 }
 
-function Status({ state }: { state: ServerState }) {
-  const text =
-    state.phase === "ready" && state.info
-      ? `${formatCount(state.info.triples)} facts online`
-      : state.phase === "waking"
-        ? "Waking the graph server"
-        : state.phase === "offline"
-          ? "Graph server offline"
-          : "Connecting";
-  return (
-    <span className={`status status-${state.phase}`} role="status">
-      {text}
-    </span>
-  );
+function statusText(state: ServerState): string {
+  if (state.phase === "ready" && state.info) return `${formatCount(state.info.triples)} facts online`;
+  if (state.phase === "waking") return "Waking the graph server";
+  if (state.phase === "offline") return "Graph server offline";
+  return "Connecting";
 }
 
 function Composer({
@@ -91,14 +84,14 @@ function Composer({
   setDraft,
   onSend,
   busy,
-  docked,
+  variant,
 }: {
   inputRef: RefObject<HTMLTextAreaElement | null>;
   draft: string;
   setDraft: (v: string) => void;
   onSend: () => void;
   busy: boolean;
-  docked: boolean;
+  variant: "landing" | "dock";
 }) {
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -110,8 +103,8 @@ function Composer({
       onSend();
     }
   };
-  const form = (
-    <form className="composer" onSubmit={onSubmit}>
+  return (
+    <form className={`composer composer-${variant}`} onSubmit={onSubmit}>
       <label htmlFor="question" className="sr-only">
         Your question
       </label>
@@ -121,7 +114,7 @@ function Composer({
         rows={1}
         value={draft}
         maxLength={MAX_CHARS}
-        placeholder={docked ? "Ask another question" : "Who directed Heat?"}
+        placeholder={variant === "dock" ? "Ask another question" : "Who directed Heat?"}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={onKeyDown}
       />
@@ -130,24 +123,18 @@ function Composer({
       </button>
     </form>
   );
-  return docked ? <div className="dock">{form}</div> : form;
 }
 
 function Pending({ text, waking }: { text: string; waking: boolean }) {
   return (
-    <article className="entry entry-pending" aria-busy="true">
+    <div className="entry entry-pending" aria-busy="true">
+      <div className="skeleton-media" />
       <p className="skeleton-line" />
       <p className="skeleton-line skeleton-short" />
-      <div className="skeleton-tiles">
-        <span />
-        <span />
-        <span />
-        <span />
-      </div>
-      <p className="entry-foot" role="status">
+      <p className="entry-status" role="status">
         {waking ? "Waking the graph server. The first answer can take up to a minute." : `Looking up “${text}”`}
       </p>
-    </article>
+    </div>
   );
 }
 
@@ -163,18 +150,17 @@ export function Chat() {
   const [busy, setBusy] = useState(false);
   const nextId = useRef(1);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const threadRef = useRef<HTMLDivElement>(null);
   const lastCount = useRef(0);
 
-  // When a question is added, bring it to the top of the view so its answer is read from the start.
+  // When a question is added, bring it to the top of the sheet so its answer is read from the start.
   useEffect(() => {
     if (turns.length === lastCount.current) return;
     lastCount.current = turns.length;
-    const qs = threadRef.current?.querySelectorAll(".turn");
-    qs?.[qs.length - 1]?.scrollIntoView({ behavior: "smooth", block: "start" });
+    const last = turns[turns.length - 1];
+    if (last) requestAnimationFrame(() => document.getElementById(`q-${last.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }));
   }, [turns]);
 
-  // Focus the box on desktop only; on phones it would raise the keyboard over the start screen.
+  // Focus the box on desktop only; on phones it would raise the keyboard over the gallery.
   useEffect(() => {
     if (window.matchMedia("(min-width: 961px)").matches) inputRef.current?.focus();
   }, []);
@@ -221,44 +207,88 @@ export function Chat() {
     }
   }, [send]);
 
-  const empty = turns.length === 0;
+  const reset = () => setTurns([]);
+
+  if (turns.length === 0) {
+    return (
+      <div className="landing">
+        <header className="corner corner-top">
+          <Link href="/" className="corner-brand">
+            CineGraph
+          </Link>
+          <span className={`corner-status status-${server.phase}`} role="status">
+            {statusText(server)}
+          </span>
+        </header>
+
+        <main className="landing-main" id="main">
+          <h1 className="sr-only">CineGraph, ask the film graph</h1>
+          <Gallery ready={server.phase === "ready"} />
+          <div className="landing-ask">
+            <p className="landing-kicker">
+              Ask the film graph · {server.info ? formatCount(server.info.triples) : "2.4M"} Wikidata facts, every answer with its path
+            </p>
+            <Composer inputRef={inputRef} draft={draft} setDraft={setDraft} onSend={() => send(draft)} busy={busy} variant="landing" />
+            <ul className="landing-try" aria-label="Example questions">
+              {TRY.map((q) => (
+                <li key={q}>
+                  <button type="button" onClick={() => send(q)} disabled={busy}>
+                    {q}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </main>
+
+        <footer className="corner corner-bottom">
+          <nav className="corner-switch" aria-label="Browse">
+            <span aria-current="page">Featured</span>
+            <span aria-hidden="true">/</span>
+            <Link href="/films">All films</Link>
+          </nav>
+          <nav className="corner-links" aria-label="Site">
+            <Link href="/about">How it works</Link>
+            <a href={REPO} target="_blank" rel="noreferrer">
+              Source
+            </a>
+          </nav>
+        </footer>
+      </div>
+    );
+  }
+
+  const sections = turns.map((t) => ({ id: `q-${t.id}`, label: t.text }));
 
   return (
-    <div className={`app ${empty ? "app-start" : "app-thread"}`}>
-      <SiteHeader extra={<Status state={server} />} onHome={() => setTurns([])} />
-
-      {empty ? (
-        <main className="start" id="main">
-          <section className="start-copy">
-            <h1>Ask the film graph.</h1>
-            <p className="lede">
-              {server.info ? formatCount(server.info.triples) : "2.4M"} Wikidata facts about films and the people who make them.
-              Every answer shows the path it took through the graph.
-            </p>
-            <Composer inputRef={inputRef} draft={draft} setDraft={setDraft} onSend={() => send(draft)} busy={busy} docked={false} />
-            <div className="suggest">
-              {EXAMPLES.map((g) => (
-                <section key={g.route}>
-                  <h2>{g.title}</h2>
-                  <ul>
-                    {g.questions.slice(0, 2).map((q) => (
-                      <li key={q}>
-                        <button type="button" onClick={() => send(q)} disabled={busy}>
-                          {q}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
+    <Sheet title="Ask" onClose={reset}>
+      <Reader
+        back={{ href: "/", label: "Gallery", onClick: reset }}
+        title="Ask the film graph"
+        meta={[
+          { label: "Graph", value: statusText(server) },
+          { label: "Answers from", value: "SPARQL · TransE · Jaccard recommender · image index" },
+        ]}
+        sections={sections}
+        extra={
+          <div className="reader-try">
+            <p>Try</p>
+            <ul>
+              {TRY.map((q) => (
+                <li key={q}>
+                  <button type="button" onClick={() => send(q)} disabled={busy}>
+                    {q}
+                  </button>
+                </li>
               ))}
-            </div>
-          </section>
-          <PosterWall ready={server.phase === "ready"} />
-        </main>
-      ) : (
-        <main className="thread" id="main" ref={threadRef} aria-live="polite">
-          {turns.map((t) => (
-            <section key={t.id} className="turn">
+            </ul>
+          </div>
+        }
+      >
+        <div className="thread" aria-live="polite">
+          {turns.map((t, i) => (
+            <section key={t.id} className="turn" id={`q-${t.id}`}>
+              <p className="turn-index">Question {String(i + 1).padStart(2, "0")}</p>
               <h2 className="question">{t.text}</h2>
               {t.kind === "pending" && <Pending text={t.text} waking={server.phase !== "ready"} />}
               {t.kind === "error" && (
@@ -270,9 +300,11 @@ export function Chat() {
             </section>
           ))}
           <div className="thread-end" aria-hidden="true" />
-          <Composer inputRef={inputRef} draft={draft} setDraft={setDraft} onSend={() => send(draft)} busy={busy} docked />
-        </main>
-      )}
-    </div>
+        </div>
+        <div className="dock">
+          <Composer inputRef={inputRef} draft={draft} setDraft={setDraft} onSend={() => send(draft)} busy={busy} variant="dock" />
+        </div>
+      </Reader>
+    </Sheet>
   );
 }
