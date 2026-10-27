@@ -36,7 +36,7 @@ from core.data import (
     load_ratings,
 )
 from core.linker import get_linker
-from core.recommender import recommend_movies
+from core.recommender import LAST_RUN as REC_LAST_RUN, recommend_movies
 from core.responser import Responser
 from server.catalog import Catalog
 
@@ -221,8 +221,10 @@ def build_reply(message: str, answer: str, meta: Dict[str, Any], trace_raw: str,
         subject = entity_card(meta["entity_uri"]) or {"label": _label(meta["entity_uri"]), "qid": _qid(meta["entity_uri"])}
 
     if route == "recommendation":
-        uris = [str(STATE.lbl_to_ent[t]) for t in meta.get("recommendations", []) if t in STATE.lbl_to_ent]
-        seeds = [str(STATE.lbl_to_ent[t]) for t in meta.get("seeds", []) if t in STATE.lbl_to_ent]
+        uris = [u for u in (meta.get("recommendation_uris") or []) if u] or [
+            str(STATE.lbl_to_ent[t]) for t in meta.get("recommendations", []) if t in STATE.lbl_to_ent]
+        seeds = list(meta.get("seed_uris") or []) or [
+            str(STATE.lbl_to_ent[t]) for t in meta.get("seeds", []) if t in STATE.lbl_to_ent]
         cards = _cards(uris)
         seed_cards = _cards(seeds)
     elif route == "multimedia":
@@ -489,8 +491,9 @@ def create_app(load_on_startup: bool = True) -> FastAPI:
                 print(f"[api] similar failed: {exc!r}")
                 recs = []
         out = []
+        rec_uris = REC_LAST_RUN.get("recommendations") or {}
         for title, _score in recs:
-            uri = STATE.lbl_to_ent.get(title)
+            uri = rec_uris.get(title) or STATE.lbl_to_ent.get(title)
             q = _qid(str(uri)) if uri else None
             if q and q in cat.film_by_qid and q != film_qid:
                 out.append(cat._public(cat.film_by_qid[q]))

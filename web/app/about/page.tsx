@@ -21,10 +21,12 @@ const ROUTES = [
     name: "Recommendation",
     body: (
       <>
-        Seed films are split out of the question (“The Matrix and Blade Runner”). Every candidate film is scored by the people
-        and attributes it shares with them, weighted from costume designer (6), composer (5), genre and studio (4) and director
-        (3) down to cast (0.8), and that score is blended 65/35 with embedding similarity. Requests that are really lists, such
-        as “films with Meryl Streep”, become a graph query instead.
+        Seed films are split out of the question (“The Matrix and Blade Runner”, “something like Chicken Little”) and linked
+        to the graph with typo tolerance; a series or character such as “Star Wars” stands for its films. Every candidate
+        film is scored by the facets it shares with them: genre (5), director (3.5), screenwriter, studio and cast (2.5),
+        composer and producer (1.2), down to country and language (0.4), normalised over everything the seed has, so one
+        shared name alone does not decide. That score is blended 65/35 with embedding similarity. Requests that are really
+        lists, such as “films with Meryl Streep”, become a graph query instead.
       </>
     ),
   },

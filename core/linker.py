@@ -402,3 +402,8 @@ def get_linker(graph, ent_to_lbl: dict) -> EntityLinker:
         linker = EntityLinker(graph, ent_to_lbl)
         _CACHE[id(graph)] = linker
     return linker
+
+
+def peek_linker(graph) -> EntityLinker | None:
+    """The linker already built for this graph, or None (callers without the label map)."""
+    return _CACHE.get(id(graph))

@@ -175,7 +175,7 @@ export function Entry({ reply }: { reply: Reply }) {
         <p className="note">Name the film or person as it is titled and ask one thing at a time, for example “Who directed Heat?”</p>
       )}
 
-      {reply.route === "recommendation" && reply.seeds.length > 0 && (
+      {reply.route === "recommendation" && reply.seeds.length > 0 && reply.seeds.length <= 3 && (
         <p className="because">
           Because you liked{" "}
           {reply.seeds.map((s, i) => (

@@ -30,6 +30,7 @@ from core.recommender import (
     detect_production_company_based_recommendation,
     detect_language_based_recommendation,
     resolve_movie_uri,
+    LAST_RUN as REC_LAST_RUN,
 )
 
 # --- Global Natural Language Templates for Formatting Answers ---
@@ -1257,33 +1258,61 @@ class Responser:
             constraints['language_qid'] = language_filter['language_qid']
 
         recommendations = []
+        top_k = 6
 
         if seed_titles:
             print(f"[recommender] Seed movies: {seed_titles}")
             if constraints:
                 print(f"[recommender] Constraints: {constraints}")
-                recommendations = recommend_movies_with_constraints(graph, seed_titles, constraints, top_k=2)
+                recommendations = recommend_movies_with_constraints(graph, seed_titles, constraints, top_k=top_k)
             else:
-                recommendations = recommend_movies(graph, seed_titles, top_k=2)
-        else:
-            print(f"[recommender] No seed titles found, trying theme-based search")
-            recommendations = recommend_by_theme(graph, message, top_k=2)
+                recommendations = recommend_movies(graph, seed_titles, top_k=top_k)
+        if not recommendations:
+            if seed_titles:
+                print("[recommender] Seed titles gave nothing, trying theme-based search")
+            else:
+                print("[recommender] No seed titles found, trying theme-based search")
+            themed = recommend_by_theme(graph, message, top_k=top_k)
+            if themed:
+                recommendations, seed_titles = themed, []
 
-        self.last_meta['seeds'] = list(seed_titles or [])
+        # Exact films behind the labels (same-named films exist), for the web cards
+        seed_uris = list(REC_LAST_RUN.get('seeds') or []) if seed_titles else []
+        rec_uris = REC_LAST_RUN.get('recommendations') or {}
+        seed_labels = [self._label_of(graph, u) for u in seed_uris] or list(seed_titles or [])
+        seed_names = list(REC_LAST_RUN.get('seed_names') or []) if seed_uris else []
+        self.last_meta['seeds'] = seed_labels
+        self.last_meta['seed_uris'] = seed_uris
         self.last_meta['recommendations'] = [title for title, _ in recommendations]
+        self.last_meta['recommendation_uris'] = [rec_uris.get(title) for title, _ in recommendations]
 
         if not recommendations:
+            if seed_titles and not seed_uris:
+                return None, (f"I could not find {', '.join(seed_titles)} among the films in the knowledge graph. "
+                              "Check the title or name another film.")
             return None, "Could not find similar movies in the knowledge graph."
 
-        if len(recommendations) == 1:
-            response = f"Based on your preferences, I recommend {recommendations[0][0]}."
-        elif len(recommendations) == 2:
-            response = f"Based on your preferences, I recommend {recommendations[0][0]} and {recommendations[1][0]}."
+        titles = [title for title, _ in recommendations]
+        listed = titles[0] if len(titles) == 1 else ", ".join(titles[:-1]) + f" and {titles[-1]}"
+        if seed_uris:
+            response = f"If you liked {self._and_list(seed_names or seed_labels)}, try {listed}."
         else:
-            titles = [title for title, _ in recommendations]
-            response = "Based on your preferences, I recommend " + ", ".join(titles[:-1]) + f" and {titles[-1]}."
+            response = f"Based on your preferences, I recommend {listed}."
 
         return response, None
+
+    @staticmethod
+    def _and_list(items):
+        items = [i for i in items if i]
+        if len(items) <= 1:
+            return items[0] if items else ""
+        return ", ".join(items[:-1]) + f" and {items[-1]}"
+
+    @staticmethod
+    def _label_of(graph, uri):
+        for o in graph.objects(rdflib.URIRef(uri), RDFS.label):
+            return str(o)
+        return None
 
     # ----- public API -----
 
@@ -1408,6 +1437,7 @@ class Responser:
         if is_recommendation_question(message):
             print("[responser] Detected recommendation question")
             self.last_meta['route'] = 'recommendation'
+            get_linker(graph, _ent_to_lbl)  # seed titles are linked through it
             rec_result, rec_error = self._generate_recommendation_response(
                 message, graph, precomputed_titles=seed_titles_hint, language_filter=language_pref
             )

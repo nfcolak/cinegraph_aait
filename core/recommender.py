@@ -3,7 +3,7 @@
 
 import re
 from dataclasses import dataclass
-from typing import List, Dict, Set, Tuple, Optional
+from typing import Any, List, Dict, Set, Tuple, Optional
 import rdflib
 from rdflib.namespace import RDFS
 import numpy as np
@@ -17,6 +17,49 @@ _MIN_VECTOR_NORM = 1e-9
 
 # Metadata gating constants
 _PROPERTY_SIM_THRESHOLD = 0.18
+
+# URIs behind the last recommend_movies / recommend_by_theme call: 'seeds' (resolved seed films)
+# and 'recommendations' (label -> URI), so callers can show the exact films, not same-named ones.
+LAST_RUN: Dict[str, Any] = {'seeds': [], 'seed_names': [], 'recommendations': {}}
+
+
+def _norm(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+
+
+def _resolve_seeds(graph, title: str) -> Tuple[List[rdflib.URIRef], Optional[str]]:
+    """
+    Seed title -> (film URIs, display name). A series or character named exactly
+    ("movies like Star Wars", "like Harry Potter") stands for its films. Uses the entity
+    linker when one is built for this graph (typo-tolerant), else the label scan.
+    """
+    from core.linker import peek_linker
+
+    linker = peek_linker(graph)
+    if linker is None:
+        uri = resolve_movie_uri(graph, title)
+        return ([uri], None) if uri else ([], None)
+
+    # the linked label must cover most of what was typed ("recommend something" is not "Rec")
+    def covers(c) -> bool:
+        return c.match == "exact" or len(_norm(c.label)) >= 0.6 * len(_norm(title))
+
+    films = [c for c in linker.link(title, want={'film'}, limit=3) if c.kind == 'film' and covers(c)]
+    if films and films[0].match == "exact":
+        return [rdflib.URIRef(films[0].uri)], films[0].label
+    # no film with this exact title: a series or character stands for its films
+    groups = []
+    for c in linker.link(title, want={'series', 'character'}, limit=6):
+        if c.kind in ("series", "character") and covers(c):
+            linked = linker.films_of_entity(c.uri)
+            if linked:
+                groups.append((c.match == "exact", len(linked), c, linked))
+    if groups:
+        _exact, _n, c, linked = max(groups, key=lambda g: (g[0], g[1]))
+        return [rdflib.URIRef(f) for f in linked[:15]], c.label
+    if films:
+        return [rdflib.URIRef(films[0].uri)], films[0].label
+    return [], None
 
 
 @dataclass
@@ -147,6 +190,8 @@ def extract_movie_titles(text: str) -> List[str]:
         # "movies with X like Y" pattern - captures Y (the examples)
         r"(?:films?|movies?)\s+with\s+.+?\s+like\s+(.+?)(?:\s+(?:that|with|where|having)|[\?]|$)",
         # Less specific patterns (broader matches) - stop at constraint words or "and"
+        r"similar\s+(?:movies?|films?|ones?|titles?|stuff)\s+(?:to|as)\s+(.+?)(?:\s+(?:that|with|where|having)|[\.?!]|$)",
+        r"(?:something|anything|more|others?|ones?|stuff)\s+(?:like|similar\s+to)\s+(.+?)(?:\s+(?:that|with|where|having)|[\.?!,]|$)",
         r"similar\s+to\s+(.+?)(?:\s+(?:that|with|where|having)|[\.?]|$)",
         r"(?:same|similar)\s+(?:vibe|feel|style|tone|atmosphere)\s+as\s+(.+?)(?:\s+(?:that|with|where|having)|[\?]|$)",
         r"(?:films?|movies?)\s+(?:like|similar\s+to|in\s+that\s+style)\s+(.+?)(?:\s+(?:that|with|where|having)|[\?]|$)",
@@ -154,6 +199,12 @@ def extract_movie_titles(text: str) -> List[str]:
         r"that\s+(?:feel|are)\s+like\s+(.+?)(?:\s+(?:that|with|where|having)|[\.\?]|$)",
         # Pattern for "fans of X would enjoy" or "that fans of X would like"
         r"(?:that\s+)?fans\s+of\s+(.+?)(?:\s+(?:would|might|will|should)|\s*$)",
+        # Title first: "Chicken Little similar", "Shrek-like movies", "movies Toy Story fans like"
+        r"^(?:(?:movies?|films?)\s+)?(.+?)\s+(?:similar|alike|lookalikes?|recommendations?)(?:\s+(?:movies?|films?))?\s*[\.?!]*$",
+        r"^(.+?)[\s\-]like\s+(?:movies?|films?)\s*[\.?!]*$",
+        # "what to watch after Frozen", "after watching Up, what next?"
+        r"(?:watch|see)\s+(?:next\s+)?(?:after|following)\s+(.+?)(?:\s+(?:that|with|where|having)|[\.?!,]|$)",
+        r"after\s+(?:watching|seeing)\s+(.+?)(?:\s+(?:that|with|where|having)|[\.?!,]|$)",
     ]
 
     # Try each trigger pattern
@@ -280,6 +331,12 @@ def extract_movie_titles(text: str) -> List[str]:
 
                 # Re-clean whitespace
                 clean = clean.strip().strip('\'".,!?')
+                clean = re.sub(r'\s+(?:please|pls|thanks|too|again)$', '', clean, flags=re.IGNORECASE)
+
+                # Request words are not titles ("recommend something", "what else", "please")
+                if re.match(r'^(?:what|which|how|recommend\w*|suggest\w*|can|could|would|please|something|'
+                            r'anything|some|more|else)(?:\s|$)', clean, re.IGNORECASE):
+                    continue
 
                 # Filter out noise words and duplicates
                 # NEW: Also filter single-word titles that are likely articles or fragments
@@ -905,8 +962,14 @@ def is_recommendation_question(text: str) -> bool:
         r'\b(?:filmed|shot|location|setting)\b',  # Production questions
     ]
 
+    # Titles named as seeds ("movies like Star Wars", "similar to The Score") must not trip the
+    # factual indicators below, so they are blanked out before the check.
+    check_text = text
+    for title in extract_movie_titles(text):
+        check_text = re.sub(re.escape(title), " ", check_text, flags=re.IGNORECASE)
+
     for indicator in factual_indicators:
-        if re.search(indicator, text, re.IGNORECASE):
+        if re.search(indicator, check_text, re.IGNORECASE):
             return False  # This is likely a factual question, not a recommendation
 
     # Now check for explicit recommendation patterns
@@ -944,6 +1007,16 @@ def is_recommendation_question(text: str) -> bool:
         # Direct need/provide phrasing
         r'\bneed\s+(?:a|some)\s+.*\b(?:movies?|films?|horror|slasher|comedy|drama|thriller|romcom|musical|documentary)\b',
         r'\bany\s+.*\b(?:movies?|films?)\b',
+
+        # Any wording of "similar" or a recommendation noun/verb, with or without a film word:
+        # "Similar movies to Chicken Little", "Chicken Little similar", "something like Up",
+        # "any recommendations similar to Toy Story?", "recommend me a comedy"
+        r'\b(?:similar|alike|lookalikes?)\b',
+        r'\b(?:something|anything|more|others?|ones?|stuff)\s+(?:like|similar)\b',
+        r'\b(?:recommend|suggest)\w*\b',
+        r'[\s\-]like\s+(?:movies?|films?)\b',
+        r'\b(?:watch|see)\s+(?:next\s+)?(?:after|following)\b',
+        r'\bafter\s+(?:watching|seeing)\b',
     ]
 
     for pattern in patterns:
@@ -1106,71 +1179,59 @@ def get_movie_properties(graph, movie_uri: rdflib.URIRef) -> Dict[str, Set]:
     return properties
 
 
+_SIM_WEIGHTS = {
+    # Genre and the people who shape a film carry the signal; a shared composer or costume
+    # designer alone (one name across very different films) must not decide the match.
+    'genre': 5.0,
+    'director': 3.5,
+    'screenwriter': 2.5,
+    'production_company': 2.5,
+    'cast': 2.5,
+    'composer': 1.2,
+    'producer': 1.2,
+    'costume_designer': 0.8,
+    'cinematographer': 0.8,
+    'country': 0.4,
+    'original_language': 0.4,
+}
+
+
+def _facet_similarity(prop_name: str, set1: Set, set2: Set) -> float:
+    """Similarity of one facet in [0, 1]."""
+    inter = len(set1 & set2)
+    if not inter:
+        return 0.0
+    if prop_name == 'genre':
+        # Jaccard, lifted so that sharing half the genres already counts as a strong match
+        return min(1.0, 1.6 * inter / len(set1 | set2))
+    if prop_name == 'cast':
+        # casts are long: three shared actors is a full match
+        return min(1.0, inter / 3)
+    # one shared director/writer/studio is a strong signal whatever the list lengths
+    return inter / min(len(set1), len(set2))
+
+
 def calculate_similarity(props1: Dict[str, Set], props2: Dict[str, Set]) -> float:
     """
-    Calculate similarity score between two movies based on their properties.
-    Higher weight for important properties like genre and director.
-    Uses weighted Jaccard similarity with bonus for multiple matches.
+    Weighted facet similarity between a seed (props1) and a candidate (props2), in [0, 1].
 
-    Genre is prioritized but flexible - partial genre overlap is rewarded.
-    Costume designer and composer are heavily weighted (strong style indicators).
+    The score is normalised by the weight of every facet the SEED has, so a candidate that
+    shares one rare facet (e.g. only the composer) and nothing else scores low instead of
+    being judged on that facet alone.
     """
-    weights = {
-        'costume_designer': 6.0,       # HIGHEST: Very strong style indicator (e.g., Colleen Atwood)
-        'composer': 5.0,               # VERY HIGH: Strong musical style indicator (e.g., Tōru Takemitsu)
-        'genre': 4.0,                  # Important - matches production company importance
-        'production_company': 4.0,     # Equally important as genre (e.g., Disney/Pixar style)
-        'director': 3.0,               # Raised: Same director often = similar style
-        'screenwriter': 1.5,
-        'producer': 1.0,
-        'original_language': 1.0,
-        'country': 1.0,
-        'cinematographer': 0.8,
-        'cast': 0.8,
-    }
-
     total_score = 0.0
     total_weight = 0.0
-    match_count = 0  # How many properties matched
-
-    for prop_name in weights:
-        weight = weights[prop_name]
+    for prop_name, weight in _SIM_WEIGHTS.items():
         set1 = props1.get(prop_name, set())
-        set2 = props2.get(prop_name, set())
-
-        if not set1 or not set2:
+        if not set1:
             continue
-
-        # Jaccard similarity: intersection / union
-        intersection = len(set1 & set2)
-        union = len(set1 | set2)
-
-        if union > 0:
-            similarity = intersection / union
-            if similarity > 0:
-                match_count += 1
-                # Bonus for exact matches (similarity = 1.0)
-                if similarity == 1.0:
-                    similarity = 1.2  # 20% bonus
-                # Extra bonus for partial genre matches (e.g., 2 out of 3 genres match)
-                elif prop_name == 'genre' and similarity >= 0.3:  # At least 30% genre overlap
-                    similarity *= 1.1  # 10% bonus for good partial match
-            total_score += similarity * weight
-            total_weight += weight
-
+        total_weight += weight
+        set2 = props2.get(prop_name, set())
+        if set2:
+            total_score += weight * _facet_similarity(prop_name, set1, set2)
     if total_weight == 0:
         return 0.0
-
-    # Base similarity
-    base_sim = total_score / total_weight
-
-    # Bonus for having multiple property matches (diversity bonus)
-    if match_count >= 3:
-        base_sim *= 1.15  # 15% bonus for 3+ matches
-    elif match_count >= 2:
-        base_sim *= 1.08  # 8% bonus for 2 matches
-
-    return min(base_sim, 1.0)  # Cap at 1.0
+    return min(total_score / total_weight, 1.0)
 
 
 def _count_property_overlap(props1: Dict[str, Set], props2: Dict[str, Set]) -> int:
@@ -1434,15 +1495,21 @@ def recommend_movies(graph, seed_titles: List[str], top_k: int = 5, lenient_genr
         top_k: Number of recommendations to return
         lenient_genre_filter: If True, use softer genre gating (useful for actor queries)
     """
-    # 1. Resolve seed movie URIs
+    # 1. Resolve seed movie URIs (the entity linker when it is built: typo-tolerant, picks the
+    #    well-known film among same-named ones; else the label scan)
     seed_uris = []
+    seed_names = []
     for title in seed_titles:
-        uri = resolve_movie_uri(graph, title)
-        if uri:
-            seed_uris.append(uri)
+        uris, name = _resolve_seeds(graph, title)
+        if uris:
+            seed_uris.extend(u for u in uris if u not in seed_uris)
+            seed_names.append(name or title)
         else:
             print(f"[recommender] Could not resolve title: {title}")
 
+    LAST_RUN['seeds'] = [str(u) for u in seed_uris]
+    LAST_RUN['seed_names'] = seed_names
+    LAST_RUN['recommendations'] = {}
     if not seed_uris:
         return []
 
@@ -1459,6 +1526,10 @@ def recommend_movies(graph, seed_titles: List[str], top_k: int = 5, lenient_genr
         if profile.embedding_id is not None:
             seed_embed_ids.append(profile.embedding_id)
 
+    # Remakes and re-releases share the seed's title; recommending "The Lion King" for
+    # "The Lion King" reads as an error, so same-titled films are left out.
+    seed_labels = {p.label.lower() for p in seed_profiles if p.label}
+
     # 3. Find all movies in the graph (instances of Q11424 - film)
     candidate_movies = set()
 
@@ -1472,13 +1543,13 @@ def recommend_movies(graph, seed_titles: List[str], top_k: int = 5, lenient_genr
     print(f"[recommender] Found {len(candidate_movies)} candidate movies")
 
     # 4. Calculate similarity for each candidate
-    recommendations: List[Tuple[str, float, float]] = []
+    recommendations: List[Tuple[str, float, float, str]] = []
     seen_titles: Set[str] = set()
 
     for candidate_uri in candidate_movies:
         profile = _get_movie_profile(graph, candidate_uri)
         label = profile.label
-        if not label or label.lower() in seen_titles:
+        if not label or label.lower() in seen_titles or label.lower() in seed_labels:
             continue
 
         # Filter out suspicious labels (keeps dataset clean)
@@ -1554,11 +1625,12 @@ def recommend_movies(graph, seed_titles: List[str], top_k: int = 5, lenient_genr
 
         seen_titles.add(label.lower())
         rating_for_sort = profile.rating if profile.rating is not None else 0.0
-        recommendations.append((label, combined_score, rating_for_sort))
+        recommendations.append((label, combined_score, rating_for_sort, str(candidate_uri)))
 
     # 5. Sort by similarity and return top K
     recommendations.sort(key=lambda x: (x[1], x[2]), reverse=True)
-    trimmed = [(label, score) for label, score, _ in recommendations]
+    LAST_RUN['recommendations'] = {label: uri for label, _s, _r, uri in recommendations[: max(top_k, 50)]}
+    trimmed = [(label, score) for label, score, _r, _u in recommendations]
     return trimmed[:top_k]
 
 
@@ -1570,6 +1642,9 @@ def recommend_by_theme(graph, query_text: str, top_k: int = 5) -> List[Tuple[str
     Returns list of (movie_label, score) tuples.
     """
     # Extract potential production companies and genres from query
+    LAST_RUN['seeds'] = []
+    LAST_RUN['seed_names'] = []
+    LAST_RUN['recommendations'] = {}
     query_lower = query_text.lower()
 
     # Production company mappings
@@ -1760,12 +1835,17 @@ def recommend_by_theme(graph, query_text: str, top_k: int = 5) -> List[Tuple[str
                 break
 
             if label:
-                candidates.append((label, score))
+                candidates.append((label, score, movie_uri))
 
-    # Sort by score and return top K
-    candidates.sort(key=lambda x: x[1], reverse=True)
+    # Sort by score; among equal scores, the better-documented (better-known) film first
+    def _depth(uri):
+        return sum(1 for _ in graph.predicate_objects(uri))
+
+    candidates.sort(key=lambda x: (x[1], _depth(x[2])), reverse=True)
     print(f"[recommender] Found {len(candidates)} theme-based candidates")
-    return candidates[:top_k]
+    LAST_RUN['seeds'] = []
+    LAST_RUN['recommendations'] = {label: str(uri) for label, _s, uri in candidates[: max(top_k, 50)]}
+    return [(label, score) for label, score, _u in candidates[:top_k]]
 
 
 def _qid_from_uri(uri_str: str) -> str:
