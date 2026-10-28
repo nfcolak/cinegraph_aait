@@ -4,9 +4,9 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ApiError, getPerson, whenReady, type PersonDetail } from "@/lib/api";
-import { FilmTile, Strip } from "./Catalog";
-import { AskChips, HeroBand, HeroSkeleton, Ledger, Page, PageGrid, PageState, SectionTabs, StatBox, type LedgerRow } from "./PageLayout";
-import { Sheet } from "./Console";
+import { setBackdrop } from "@/lib/backdrop";
+import { FilmTile } from "./Catalog";
+import { AskChips, Facts, ImageRow, Page, PageSkeleton, PageState, Section, type Fact } from "./PageLayout";
 
 /* eslint-disable @next/next/no-img-element */
 
@@ -14,6 +14,16 @@ export function PersonView() {
   const { qid } = useParams<{ qid: string }>();
   // keyed by ID so state starts empty for every person without resetting it inside an effect
   return <PersonViewInner key={qid} qid={qid} />;
+}
+
+const filmCount = (n: number) => `${n} ${n === 1 ? "film" : "films"}`;
+
+/** "Director of 12 films · Actor in 41": the first role names the films, the others the count. */
+function creditLine(credits: PersonDetail["credits"]): string {
+  return credits
+    .slice(0, 3)
+    .map((c, i) => (i === 0 ? `${c.role} of ${filmCount(c.films.length)}` : `${c.role} in ${c.films.length}`))
+    .join(" · ");
 }
 
 function PersonViewInner({ qid }: { qid: string }) {
@@ -45,128 +55,121 @@ function PersonViewInner({ qid }: { qid: string }) {
         : "Loading person · CineGraph";
   }, [person, error]);
 
+  // the portrait colours the page behind it; cleared when the page goes away
+  const backdrop = person ? (person.image ?? person.portraits[0] ?? person.stills[0] ?? null) : null;
+  useEffect(() => {
+    setBackdrop(backdrop);
+    return () => setBackdrop(null);
+  }, [backdrop]);
+
   if (error) {
     const missing = error.status === 404;
     return (
-      <Sheet title="Person">
-        <PageState
-          code={missing ? "404" : "Error"}
-          title={missing ? "Not in the graph" : "Person not found"}
-          text={missing ? "The graph holds no person with this ID. Search the catalogue or ask a question instead." : error.message}
-          actions={
-            <>
-              <Link href="/films" className="ghost-button">
-                All films
-              </Link>
-              <Link href="/" className="ghost-button">
-                Ask
-              </Link>
-            </>
-          }
-        />
-      </Sheet>
+      <PageState
+        title={missing ? "This person is not in the graph." : "This person could not be loaded."}
+        text={missing ? "The graph holds no person with this ID. Search the catalogue or ask a question instead." : error.message}
+        actions={
+          <>
+            <Link href="/films" className="quiet">
+              All films
+            </Link>
+            <Link href="/" className="quiet">
+              Ask
+            </Link>
+          </>
+        }
+      />
     );
   }
 
-  if (!person) {
-    return (
-      <Sheet title="Person">
-        <Page busy>
-          <HeroSkeleton />
-          <div className="page-grid page-grid-single" aria-hidden="true">
-            <div>
-              <span className="skeleton-line" />
-              <ul className="tiles tiles-large">
-                {Array.from({ length: 6 }, (_, i) => (
-                  <li key={i} className="tile tile-skeleton" />
-                ))}
-              </ul>
-            </div>
-          </div>
-        </Page>
-      </Sheet>
-    );
-  }
+  if (!person) return <PageSkeleton round />;
 
-  const total = person.credits.reduce((n, c) => n + c.films.length, 0);
-  const roleId = (role: string) => `role-${role.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
-
-  const sections = [
-    ...(person.credits.length
-      ? person.credits.map((c) => ({ id: roleId(c.role), label: c.role, count: c.films.length }))
-      : [{ id: "films", label: "Films" }]),
-    ...(person.portraits.length ? [{ id: "portraits", label: "Portraits", count: person.portraits_total }] : []),
-    ...(person.stills.length ? [{ id: "scenes", label: "In scenes", count: person.stills_total }] : []),
-  ];
-
-  const rows: LedgerRow[] = [
-    { label: "In the graph", value: `${total} ${total === 1 ? "film" : "films"}` },
-    ...person.facts.map((f) => ({ label: f.name, code: f.property, value: f.values.join(", ") })),
+  // QIDs and property codes live in tooltips only
+  const rows: Fact[] = [
+    ...person.facts.map((f) => ({ label: f.name, title: f.property, value: f.values.join(", ") })),
     {
       label: "Wikidata",
+      title: person.qid,
       value: (
-        <a href={`https://www.wikidata.org/wiki/${person.qid}`} target="_blank" rel="noreferrer">
-          {person.qid} ↗
+        <a href={`https://www.wikidata.org/wiki/${person.qid}`} target="_blank" rel="noreferrer" title={person.qid}>
+          Open on Wikidata ↗
         </a>
       ),
     },
+    ...(person.imdb
+      ? [
+          {
+            label: "IMDb",
+            title: person.imdb,
+            value: (
+              <a href={`https://www.imdb.com/name/${person.imdb}/`} target="_blank" rel="noreferrer" title={person.imdb}>
+                Open on IMDb ↗
+              </a>
+            ),
+          },
+        ]
+      : []),
   ];
 
   return (
-    <Sheet title={person.label}>
-      <Page>
-        <HeroBand
-          backdrop={person.stills[0] ?? person.image}
-          art={
-            person.image ? (
-              <img src={person.image} alt={`Portrait of ${person.label}`} />
-            ) : (
-              <span className="hero-art-blank hero-art-initial" aria-hidden="true">{person.label[0]}</span>
-            )
-          }
-          kicker="Person"
-          title={person.label}
-          meta={person.description ? <p>{person.description}</p> : undefined}
-        >
-          {person.credits.length > 0 && (
-            <StatBox label="Credits by role" items={person.credits.map((c) => ({ label: c.role.toLowerCase(), value: c.films.length }))} />
-          )}
-        </HeroBand>
-
-        <AskChips
-          items={[
-            { q: `Show me a picture of ${person.label}`, label: "A portrait" },
-            { q: `Which movies did ${person.label} direct?`, label: "Films directed" },
-          ]}
-        />
-
-        <SectionTabs sections={sections} label="On this person page" />
-
-        <PageGrid ledger={<Ledger title="Ledger" rows={rows} />}>
-          {person.credits.length === 0 ? (
-            <section className="block" id="films">
-              <h2 className="block-title">Films</h2>
-              <p className="empty">The graph links no films to this person.</p>
-            </section>
+    <Page
+      side={
+        <Section title="Details">
+          <Facts rows={rows} />
+        </Section>
+      }
+    >
+      <header className="d-head">
+        <div className="d-art d-art-round">
+          {person.image ? (
+            <img src={person.image} alt={`Portrait of ${person.label}`} />
           ) : (
-            person.credits.map((c) => (
-              <section className="block" id={roleId(c.role)} key={c.role}>
-                <h2 className="block-title">
-                  {c.role} <span>{c.films.length}</span>
-                </h2>
-                <ul className="tiles tiles-large tiles-over">
-                  {c.films.map((f) => (
-                    <FilmTile key={`${c.role}-${f.qid}`} film={f} />
-                  ))}
-                </ul>
-              </section>
-            ))
+            <span className="person-head-blank" aria-hidden="true">
+              {person.label[0]}
+            </span>
           )}
+        </div>
+        <div className="d-head-body">
+          <h1 className="d-title">{person.label}</h1>
+          {person.description && <p className="d-sub">{person.description}</p>}
+          {person.credits.length > 0 && <p className="d-sub">{creditLine(person.credits)}</p>}
+        </div>
+      </header>
 
-          <Strip id="portraits" title="Portraits" total={person.portraits_total} images={person.portraits} kind="portrait" alt={person.label} />
-          <Strip id="scenes" title="In scenes" total={person.stills_total} images={person.stills} kind="still" alt={person.label} />
-        </PageGrid>
-      </Page>
-    </Sheet>
+      <AskChips
+        items={[
+          { q: `Show me a picture of ${person.label}`, label: "A portrait" },
+          { q: `Which movies did ${person.label} direct?`, label: "Films directed" },
+        ]}
+      />
+
+      {person.credits.length === 0 ? (
+        <Section title="Films">
+          <p className="empty">The graph links no films to this person.</p>
+        </Section>
+      ) : (
+        person.credits.map((c) => (
+          <Section key={c.role} title={c.role}>
+            <ul className="tiles">
+              {c.films.map((f) => (
+                <FilmTile key={`${c.role}-${f.qid}`} film={f} />
+              ))}
+            </ul>
+          </Section>
+        ))
+      )}
+
+      {person.portraits.length > 0 && (
+        <Section title="Portraits">
+          <ImageRow images={person.portraits} kind="portrait" alt={person.label} />
+        </Section>
+      )}
+
+      {person.stills.length > 0 && (
+        <Section title="In scenes">
+          <ImageRow images={person.stills} kind="still" alt={person.label} />
+        </Section>
+      )}
+    </Page>
   );
 }

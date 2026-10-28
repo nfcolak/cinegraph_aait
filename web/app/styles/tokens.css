@@ -1,95 +1,78 @@
 /*
-  CineGraph cinema console: design tokens and the base reset.
-  Mood: a projection booth at night. Warm near-black surfaces, amber projector light, a red
-  recording/evidence colour, and the posters supplying the rest of the colour.
-  Every colour, radius, type size and easing used by the other style files comes from here.
+  CineGraph quiet UI: design tokens and the base reset.
+  Two themes on html[data-theme] (set before paint by the script in layout.tsx). Warm neutrals; the film
+  behind the page supplies the colour. --guess is the one meaning colour (marks a TransE guess).
+  Contrast of ink and muted on bg and on the card: openspec/changes/quiet-ui/review/contrast.md.
 */
 
-:root {
-  color-scheme: dark;
-
-  /* surfaces */
-  --bg: #0e0c0a; /* page */
-  --bg-2: #13110e; /* bars, rails, side panels */
-  --panel: #181512; /* cards, answer panels */
-  --panel-2: #201c18; /* raised items, thumbnails */
-  --panel-3: #29241f; /* hover: chips, tabs and close buttons */
-  --input: #110f0d; /* inputs */
-  --line: #2b2520; /* hairlines */
-  --line-2: #3a322b; /* control borders */
-  --line-3: #6b5f53; /* input boundaries: 3:1 on --bg, --bg-2 and --input */
-
-  /* text: --text-3 is the lowest contrast allowed for readable text; --text-4 is decorative only */
-  --text: #f3ede4;
-  --text-2: #b8ad9f;
-  --text-3: #8c8073;
-  --text-4: #5b5148;
-
-  /* accents */
-  --accent: #ffb547; /* projector amber: primary action, active tab, current item */
-  --accent-2: #f29a1f; /* amber pressed or secondary */
-  --accent-hover: #ffc76e;
-  --accent-soft: rgba(255, 181, 71, 0.1);
-  --accent-line: rgba(255, 181, 71, 0.34);
-  --accent-ring: rgba(255, 181, 71, 0.08);
-  --accent-perf: rgba(255, 181, 71, 0.22); /* film-strip perforations */
-  --red: #ff5a4e; /* evidence, graph edges, the LIVE dot */
-  --red-soft: rgba(255, 90, 78, 0.1);
-  --red-line: rgba(255, 90, 78, 0.34);
-  --red-glow: rgba(255, 90, 78, 0.18);
-  --teal: #5fd4c4; /* route: pictures */
-  --violet: #c49bff; /* route: predictions */
-  --violet-line: rgba(196, 155, 255, 0.4);
-  --violet-ink: #ddc8ff;
-  --bad: #ff8b7f; /* errors, no answer */
-  --on-accent: #160f05; /* text on amber, red and route fills */
-  --scrim: rgba(14, 12, 10, 0.5); /* tag and note fill over blurred stills */
-  --track: rgba(255, 243, 228, 0.07); /* progress bar track */
-
-  /* route colours: facts amber, predictions violet, recommendations red, pictures teal, no answer bad */
-  --route-factual: var(--accent);
-  --route-prediction: var(--violet);
-  --route-recommendation: var(--red);
-  --route-multimedia: var(--teal);
-  --route-miss: var(--bad);
-
-  /* type: IBM Plex Sans for reading, IBM Plex Mono for labels, counts, ids, queries and logs */
-  --sans: var(--font-plex-sans), "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --mono: var(--font-plex-mono), "IBM Plex Mono", "SF Mono", Menlo, monospace;
-  --fs-display: clamp(30px, 5vw, 48px); /* 48 / 600, -0.03em; 30 on phones */
-  --fs-title: 30px; /* page title, 600 */
-  --fs-question: 23px; /* 600 */
-  --fs-section: 20px; /* section title, 600 */
-  --fs-read: 15px; /* answers and ledes, line-height 1.55 */
-  --fs-body: 14px; /* default text */
-  --fs-small: 12.5px;
-  --fs-label: 11px; /* mono label, 10.5 to 11.5, uppercase, letter-spacing 0.06 to 0.1em */
-  --fs-label-sm: 10.5px;
-  --lh-body: 1.55;
-
-  /* shape and space: 4-point grid */
-  --r-hair: 2px; /* underlines, bars and small marks */
-  --r-pill: 999px; /* scrollbar thumbs */
-  --r-poster: 4px;
-  --r-tag: 4px;
-  --r-control: 6px;
-  --r-panel: 8px;
-  --r-sheet: 12px;
-  --gutter: 28px;
-  --topbar: 56px;
-  --shadow-sheet: 0 -24px 60px rgba(0, 0, 0, 0.6); /* the only shadow in the system */
-
-  /* motion */
-  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --t-fast: 120ms;
-  --t-base: 160ms;
+:root,
+html[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f5f4f1;
+  --ink: #17161a;
+  --muted: #66646b;
+  --faint: rgba(23, 22, 26, 0.06);
+  --hair: rgba(23, 22, 26, 0.09);
+  --card: rgba(255, 255, 255, 0.72);
+  --card-rim: rgba(255, 255, 255, 0.9);
+  --shadow: 0 30px 80px -32px rgba(30, 25, 20, 0.25);
+  --btn: #17161a;
+  --btn-ink: #ffffff;
+  --danger: #b8323f;
+  --guess: #6b55d9;
+  --field: 0.16; /* opacity of the blurred film backdrop */
 }
 
-@media (max-width: 980px) {
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0c0c0e;
+  --ink: #ededf0;
+  --muted: #9a98a2;
+  --faint: rgba(255, 255, 255, 0.06);
+  --hair: rgba(255, 255, 255, 0.08);
+  --card: rgba(24, 24, 28, 0.66);
+  --card-rim: rgba(255, 255, 255, 0.08);
+  --shadow: 0 30px 80px -30px rgba(0, 0, 0, 0.7);
+  --btn: #ededf0;
+  --btn-ink: #0c0c0e;
+  --danger: #ff8190;
+  --guess: #a594ff;
+  --field: 0.14;
+}
+
+:root {
+  /* type: Geist for reading, Geist Mono only for example chips, the SPARQL query, the log and QIDs */
+  --sans: var(--font-geist-sans), "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --mono: var(--font-geist-mono), "Geist Mono", "SF Mono", Menlo, monospace;
+  --fs-page: clamp(30px, 3vw, 56px); /* page sentence, 500, line-height 1.2 */
+  --fs-answer: clamp(19px, 1.3vw, 23px); /* line-height 1.55 */
+  --fs-base: clamp(15px, 0.95vw, 16.5px); /* body, line-height 1.6 */
+  --fs-small: 13px;
+  --fs-chip: 12px; /* mono */
+
+  /* shape */
+  --r-card: 24px;
+  --r-pill: 999px;
+  --r-poster: 10px;
+  --r-ctl: 10px;
+
+  /* layout */
+  --column: 1560px; /* page content */
+  --read: clamp(720px, 60vw, 1160px); /* ask thread */
+  --header: 76px;
+  --pad: clamp(16px, 3.2vw, 56px);
+
+  /* motion: only fades and the backdrop crossfade */
+  --ease: ease;
+  --fade: 160ms;
+  --crossfade: 600ms;
+}
+
+@media (max-width: 640px) {
   :root {
-    --topbar: 52px;
-    --gutter: 16px;
-    --fs-question: 20px;
+    --fs-page: 24px;
+    --r-card: 20px;
+    --pad: 14px;
   }
 }
 
@@ -101,18 +84,18 @@
   padding: 0;
 }
 
-html,
-body {
-  height: 100%;
+html {
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
-  overflow: hidden;
+  min-height: 100dvh;
+  overflow-x: hidden;
   background: var(--bg);
-  color: var(--text);
+  color: var(--ink);
   font-family: var(--sans);
-  font-size: var(--fs-body);
-  line-height: 1.5;
+  font-size: var(--fs-base);
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -148,8 +131,7 @@ ol {
   list-style: none;
 }
 
-code {
-  color: var(--text-3);
+code,
+pre {
   font-family: var(--mono);
-  font-size: 0.86em;
 }

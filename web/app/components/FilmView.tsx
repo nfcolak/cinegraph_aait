@@ -2,15 +2,15 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ApiError, getFilm, getSimilar, personHref, whenReady, type FactValue, type FilmDetail, type FilmRow } from "@/lib/api";
-import { FilmTile, Strip } from "./Catalog";
-import { AskChips, HeroBand, HeroSkeleton, Ledger, Page, PageGrid, PageState, SectionTabs, type LedgerRow } from "./PageLayout";
-import { Sheet } from "./Console";
+import { setBackdrop } from "@/lib/backdrop";
+import { FilmTile } from "./Catalog";
+import { AskChips, Facts, ImageRow, Page, PageSkeleton, PageState, Section, type Fact } from "./PageLayout";
 
 /* eslint-disable @next/next/no-img-element */
 
-const HERO_GENRES = 5;
+const CAST_SHOWN = 12;
 
 export function FilmView() {
   const { qid } = useParams<{ qid: string }>();
@@ -36,6 +36,7 @@ function FilmViewInner({ qid }: { qid: string }) {
   const [film, setFilm] = useState<FilmDetail | null>(null);
   const [similar, setSimilar] = useState<FilmRow[] | null>(null);
   const [error, setError] = useState<{ message: string; status: number } | null>(null);
+  const [allCast, setAllCast] = useState(false);
 
   useEffect(() => {
     const ctrl = new AbortController();
@@ -63,72 +64,66 @@ function FilmViewInner({ qid }: { qid: string }) {
         : "Loading film · CineGraph";
   }, [film, error]);
 
+  // the film's own image colours the page behind it; cleared when the page goes away
+  const backdrop = film ? (film.backdrop ?? film.stills[0] ?? film.image ?? null) : null;
+  useEffect(() => {
+    setBackdrop(backdrop);
+    return () => setBackdrop(null);
+  }, [backdrop]);
+
   if (error) {
     const missing = error.status === 404;
     return (
-      <Sheet title="Film">
-        <PageState
-          code={missing ? "404" : "Error"}
-          title={missing ? "Not in the graph" : "Film not found"}
-          text={missing ? "The graph holds no film with this ID. Browse the catalogue or ask a question instead." : error.message}
-          actions={
-            <>
-              <Link href="/films" className="ghost-button">
-                All films
-              </Link>
-              <Link href="/" className="ghost-button">
-                Ask
-              </Link>
-            </>
-          }
-        />
-      </Sheet>
+      <PageState
+        title={missing ? "This film is not in the graph." : "This film could not be loaded."}
+        text={missing ? "The graph holds no film with this ID. Browse the catalogue or ask a question instead." : error.message}
+        actions={
+          <>
+            <Link href="/films" className="quiet">
+              All films
+            </Link>
+            <Link href="/" className="quiet">
+              Ask
+            </Link>
+          </>
+        }
+      />
     );
   }
 
-  if (!film) {
-    return (
-      <Sheet title="Film">
-        <Page busy>
-          <HeroSkeleton />
-          <div className="page-grid page-grid-single" aria-hidden="true">
-            <div>
-              <span className="skeleton-line" />
-              <span className="skeleton-line skeleton-short" />
-              <ul className="tiles tiles-large">
-                {Array.from({ length: 6 }, (_, i) => (
-                  <li key={i} className="tile tile-skeleton" />
-                ))}
-              </ul>
-            </div>
-          </div>
-        </Page>
-      </Sheet>
-    );
-  }
+  if (!film) return <PageSkeleton />;
 
   const directors = film.facts.find((f) => f.property === "P57")?.values ?? [];
-  const backdrop = film.backdrop ?? film.stills[0] ?? film.image ?? null;
+  const cast = allCast ? film.cast : film.cast.slice(0, CAST_SHOWN);
 
-  const sections = [
-    { id: "overview", label: "Overview" },
-    { id: "cast", label: "Cast", count: film.cast_total || "" },
-    ...(film.stills.length ? [{ id: "stills", label: "Stills", count: film.stills_total }] : []),
-    ...(film.posters.length ? [{ id: "posters", label: "Posters", count: film.posters_total }] : []),
-    { id: "similar", label: "Similar" },
-  ];
+  const subline: ReactNode[] = [];
+  if (film.year) subline.push(film.year);
+  if (directors.length) subline.push(<People key="dir" values={directors} />);
+  if (film.genres.length) subline.push(film.genres.slice(0, 3).join(", "));
 
-  const rows: LedgerRow[] = [
-    ...film.facts.map((f) => ({ label: f.name, code: f.property, value: <People values={f.values} more={f.more} /> })),
+  // QIDs and property codes live in tooltips only
+  const rows: Fact[] = [
+    ...(film.date ? [{ label: "Released", value: film.date }] : []),
+    ...film.facts.map((f) => ({ label: f.name, title: f.property, value: <People values={f.values} more={f.more} /> })),
     ...(film.genres.length ? [{ label: "Genres", value: film.genres.join(", ") }] : []),
     ...(film.tags.length ? [{ label: "Keywords", value: film.tags.join(", ") }] : []),
+    {
+      label: "Wikidata",
+      title: film.qid,
+      value: (
+        <a href={`https://www.wikidata.org/wiki/${film.qid}`} target="_blank" rel="noreferrer" title={film.qid}>
+          Open on Wikidata ↗
+        </a>
+      ),
+    },
     ...(film.imdb
       ? [
           {
             label: "IMDb",
+            title: film.imdb,
             value: (
-              <a href={`https://www.imdb.com/title/${film.imdb}/`} target="_blank" rel="noreferrer">
-                {film.imdb} ↗
+              <a href={`https://www.imdb.com/title/${film.imdb}/`} target="_blank" rel="noreferrer" title={film.imdb}>
+                Open on IMDb ↗
               </a>
             ),
           },
@@ -137,115 +132,103 @@ function FilmViewInner({ qid }: { qid: string }) {
   ];
 
   return (
-    <Sheet title={film.label}>
-      <Page>
-        <HeroBand
-          backdrop={backdrop}
-          art={
-            film.image ? (
-              <img src={film.image} alt={`Poster of ${film.label}`} />
-            ) : (
-              <span className="hero-art-blank">{film.label}</span>
-            )
-          }
-          kicker={`Film${film.year ? ` · ${film.year}` : ""}`}
-          title={film.label}
-          meta={
-            <>
-              {directors.length > 0 && (
-                <p>
-                  Directed by <People values={directors} />
-                </p>
-              )}
-              {film.rating !== null && <p>rated {film.rating.toFixed(1)} / 5 by course users</p>}
-            </>
-          }
-        >
-          {film.genres.length > 0 && (
-            <ul className="hero-tags" aria-label="Genres">
-              {film.genres.slice(0, HERO_GENRES).map((g) => (
-                <li key={g} className="tag">
-                  {g}
-                </li>
+    <Page
+      side={
+        <Section title="Details">
+          <Facts rows={rows} />
+        </Section>
+      }
+    >
+      <header className="d-head">
+        <div className="d-art">
+          {film.image ? <img src={film.image} alt={`Poster of ${film.label}`} /> : <span className="tile-blank">{film.label}</span>}
+        </div>
+        <div className="d-head-body">
+          <h1 className="d-title">{film.label}</h1>
+          {subline.length > 0 && (
+            <p className="d-sub">
+              {subline.map((s, i) => (
+                <span key={i}>
+                  {i > 0 && " · "}
+                  {s}
+                </span>
               ))}
-              {film.genres.length > HERO_GENRES && <li className="tag">+{film.genres.length - HERO_GENRES}</li>}
-            </ul>
+            </p>
           )}
-          <div className="hero-links">
-            <a className="tag hero-link" href={`https://www.wikidata.org/wiki/${film.qid}`} target="_blank" rel="noreferrer">
-              Wikidata {film.qid} ↗
-            </a>
-            {film.imdb && (
-              <a className="tag hero-link" href={`https://www.imdb.com/title/${film.imdb}/`} target="_blank" rel="noreferrer">
-                IMDb {film.imdb} ↗
-              </a>
-            )}
+          {film.rating !== null && <p className="d-sub">Rated {film.rating.toFixed(1)} / 5 by course users</p>}
+        </div>
+      </header>
+
+      <AskChips
+        items={[
+          { q: `Who is the composer of ${film.label}?`, label: "Who composed it?" },
+          { q: `Recommend movies like ${film.label}`, label: "Similar films" },
+          { q: `Show me a scene from ${film.label}`, label: "A scene" },
+        ]}
+      />
+
+      <Section title="About">
+        {film.description ? <p className="d-lede">{film.description}</p> : <p className="empty">The graph holds no description for this film.</p>}
+      </Section>
+
+      <Section
+        title="Cast"
+        action={
+          film.cast.length > CAST_SHOWN ? (
+            <button type="button" className="quiet" aria-expanded={allCast} onClick={() => setAllCast((v) => !v)}>
+              {allCast ? "Show fewer" : "Show all"}
+            </button>
+          ) : null
+        }
+      >
+        {cast.length ? (
+          <ul className={allCast ? "people" : "row"}>
+            {cast.map((c) => (
+              <li key={c.qid} className="person-tile-item">
+                <Link className="person-tile" href={personHref(c.qid)}>
+                  {c.image ? <img src={c.image} alt="" loading="lazy" /> : <span className="person-tile-blank" aria-hidden="true">{c.label[0]}</span>}
+                  <span>{c.label}</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="empty">The graph lists no cast for this film.</p>
+        )}
+      </Section>
+
+      {film.stills.length > 0 && (
+        <Section title="Stills">
+          <ImageRow images={film.stills} kind="still" alt={film.label} />
+        </Section>
+      )}
+
+      {film.posters.length > 0 && (
+        <Section title="Posters">
+          <ImageRow images={film.posters} kind="poster" alt={film.label} />
+        </Section>
+      )}
+
+      <Section title="Similar films">
+        {similar === null ? (
+          <div aria-busy="true">
+            <p className="empty">Looking for similar films…</p>
+            <ul className="row" aria-hidden="true">
+              {Array.from({ length: 6 }, (_, i) => (
+                <li key={i} className="tile tile-skeleton" />
+              ))}
+            </ul>
           </div>
-        </HeroBand>
-
-        <AskChips
-          items={[
-            { q: `Who is the composer of ${film.label}?`, label: "Who composed it" },
-            { q: `Recommend movies like ${film.label}`, label: "Films like it" },
-            { q: `Show me a scene from ${film.label}`, label: "A scene" },
-          ]}
-        />
-
-        <SectionTabs sections={sections} label="On this film page" />
-
-        <PageGrid ledger={<Ledger title="Ledger" rows={rows} />} afterFirst>
-          <section className="block" id="overview">
-            <h2 className="block-title">Overview</h2>
-            {film.description ? <p className="lede">{film.description}</p> : <p className="empty">The graph holds no description for this film.</p>}
-            {film.date && <p className="overview-sub">Released {film.date}</p>}
-          </section>
-
-          <section className="block" id="cast">
-            <h2 className="block-title">
-              Cast <span>{film.cast_total > film.cast.length ? `${film.cast.length} of ${film.cast_total}` : film.cast_total || ""}</span>
-            </h2>
-            {film.cast.length ? (
-              <ul className="people">
-                {film.cast.map((c) => (
-                  <li key={c.qid}>
-                    <Link className="person-tile" href={personHref(c.qid)}>
-                      {c.image ? <img src={c.image} alt="" loading="lazy" /> : <span className="person-tile-blank" aria-hidden="true">{c.label[0]}</span>}
-                      <span>{c.label}</span>
-                    </Link>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="empty">The graph lists no cast for this film.</p>
-            )}
-          </section>
-
-          <Strip id="stills" title="Stills" total={film.stills_total} images={film.stills} kind="still" alt={film.label} />
-          <Strip id="posters" title="Posters" total={film.posters_total} images={film.posters} kind="poster" alt={film.label} />
-
-          <section className="block" id="similar" aria-busy={similar === null}>
-            <h2 className="block-title">Similar films</h2>
-            {similar === null ? (
-              <>
-                <p className="empty">Scoring every film against this one</p>
-                <ul className="tiles tiles-large" aria-hidden="true">
-                  {Array.from({ length: 6 }, (_, i) => (
-                    <li key={i} className="tile tile-skeleton" />
-                  ))}
-                </ul>
-              </>
-            ) : similar.length ? (
-              <ul className="tiles tiles-large tiles-over">
-                {similar.map((f) => (
-                  <FilmTile key={f.qid} film={f} />
-                ))}
-              </ul>
-            ) : (
-              <p className="empty">The recommender found no close match.</p>
-            )}
-          </section>
-        </PageGrid>
-      </Page>
-    </Sheet>
+        ) : similar.length ? (
+          <ul className="row">
+            {similar.map((f) => (
+              <FilmTile key={f.qid} film={f} />
+            ))}
+          </ul>
+        ) : (
+          <p className="empty">The recommender found no close match.</p>
+        )}
+      </Section>
+    </Page>
   );
 }

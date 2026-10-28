@@ -1,214 +1,50 @@
 "use client";
 
 import Link from "next/link";
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type FormEvent,
-  type KeyboardEvent,
-  type MouseEvent,
-  type RefObject,
-} from "react";
-import { ask, ApiError, filmHref, formatCount, showcase, type FilmRow, type Reply, type Route } from "@/lib/api";
-import { EXAMPLES } from "@/lib/examples";
-import { TopBar, useElapsed, useServerState, waitUntilReady, WakeBanner, type ServerState } from "./Console";
-import { AnswerBody, backdropOf, routeName, toneOf } from "./Entry";
-import { Evidence, evidenceCount } from "./Evidence";
-
-/* eslint-disable @next/next/no-img-element */
+import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type RefObject } from "react";
+import { ask, ApiError, filmHref, formatLatency, showcase, type FilmRow, type Reply } from "@/lib/api";
+import { setBackdrop } from "@/lib/backdrop";
+import { QUESTION_KINDS } from "@/lib/examples";
+import { loadThread, saveThread } from "@/lib/thread";
+import { HOME_EVENT, useServer, waitUntilReady } from "./Shell";
+import { AnswerBody, backdropOf, isGuess } from "./Entry";
+import { Evidence } from "./Evidence";
 
 type Turn =
-  | { id: number; kind: "pending"; text: string; at: string }
-  | { id: number; kind: "reply"; text: string; at: string; reply: Reply }
-  | { id: number; kind: "error"; text: string; at: string; error: string };
-
-type ReplyTurn = Extract<Turn, { kind: "reply" }>;
-type Tab = "all" | Route;
+  | { id: number; kind: "pending"; text: string }
+  | { id: number; kind: "reply"; text: string; reply: Reply }
+  | { id: number; kind: "error"; text: string; error: string };
 
 const MAX_CHARS = 300;
-const SHEET_QUERY = "(max-width: 980px)";
 const DESKTOP_QUERY = "(min-width: 981px)";
-
-const clock = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-
-const TABS: { id: Tab; label: string }[] = [
-  { id: "all", label: "All" },
-  ...EXAMPLES.map((g) => ({ id: g.route as Tab, label: g.title })),
-];
-
-function examplesFor(tab: Tab): string[] {
-  if (tab === "all") return EXAMPLES.flatMap((g) => g.questions.slice(0, 2));
-  return EXAMPLES.find((g) => g.route === tab)?.questions ?? [];
-}
-
-/** Live value of a media query (false on the server and during hydration). */
-function useMedia(query: string): boolean {
-  return useSyncExternalStore(
-    (notify) => {
-      const mq = window.matchMedia(query);
-      mq.addEventListener("change", notify);
-      return () => mq.removeEventListener("change", notify);
-    },
-    () => window.matchMedia(query).matches,
-    () => false,
-  );
-}
 
 const smooth = (): ScrollBehavior => (window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth");
 
-function IconTrash() {
+function Chevron() {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6" />
+    <svg viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="m4.5 2.5 3.5 3.5-3.5 3.5" />
     </svg>
   );
 }
 
-function IconGraph() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
-      <circle cx="5" cy="12" r="2.5" />
-      <circle cx="19" cy="6" r="2.5" />
-      <circle cx="19" cy="18" r="2.5" />
-      <path d="M7.4 11 16.6 7M7.4 13l9.2 4" />
-    </svg>
-  );
-}
-
-/** Route tabs over the chat: a tablist (arrow keys, Home and End move between tabs) and the active route's example chips. */
-function RouteTabs({ tab, setTab, onPick, busy }: { tab: Tab; setTab: (t: Tab) => void; onPick: (q: string) => void; busy: boolean }) {
-  const refs = useRef<Partial<Record<Tab, HTMLButtonElement | null>>>({});
-  const blurb = tab === "all" ? "One or two questions from every route." : EXAMPLES.find((g) => g.route === tab)?.blurb;
-
-  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    const at = TABS.findIndex((t) => t.id === tab);
-    const to =
-      e.key === "ArrowRight" ? (at + 1) % TABS.length : e.key === "ArrowLeft" ? (at - 1 + TABS.length) % TABS.length : e.key === "Home" ? 0 : e.key === "End" ? TABS.length - 1 : -1;
-    if (to < 0) return;
-    e.preventDefault();
-    setTab(TABS[to].id);
-    refs.current[TABS[to].id]?.focus();
-  };
-
-  return (
-    <div className="routebar">
-      <div className="route-tabs" role="tablist" aria-label="Answer routes" onKeyDown={onKeyDown}>
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            ref={(el) => {
-              refs.current[t.id] = el;
-            }}
-            type="button"
-            role="tab"
-            id={`route-tab-${t.id}`}
-            aria-selected={tab === t.id}
-            aria-controls="route-panel"
-            tabIndex={tab === t.id ? 0 : -1}
-            className={`route-tab route-tab-${t.id}`}
-            onClick={() => setTab(t.id)}
-          >
-            {t.id !== "all" && <span className="route-dot" aria-hidden="true" />}
-            {t.label}
-          </button>
-        ))}
-      </div>
-      <div id="route-panel" role="tabpanel" aria-labelledby={`route-tab-${tab}`}>
-        <p className="route-blurb">{blurb}</p>
-        <div className="route-examples">
-          {examplesFor(tab).map((q) => (
-            <button key={q} type="button" className="ex-chip" onClick={() => onPick(q)} disabled={busy}>
-              {q}
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Composer({
-  inputRef,
-  draft,
-  setDraft,
-  onSend,
-  busy,
-}: {
-  inputRef: RefObject<HTMLTextAreaElement | null>;
-  draft: string;
-  setDraft: (v: string) => void;
-  onSend: () => void;
-  busy: boolean;
-}) {
-  // grow with the text, up to about four lines
-  useEffect(() => {
-    const el = inputRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
-  }, [draft, inputRef]);
-
-  const onSubmit = (e: FormEvent) => {
-    e.preventDefault();
-    onSend();
-  };
-  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
-      e.preventDefault();
-      onSend();
-    }
-  };
-  return (
-    <div className="composer-wrap">
-      <form className="composer" onSubmit={onSubmit}>
-        <span className="composer-prompt" aria-hidden="true">
-          ?
-        </span>
-        <label htmlFor="question" className="sr-only">
-          Your question
-        </label>
-        <textarea
-          id="question"
-          ref={inputRef}
-          rows={1}
-          className="composer-input"
-          value={draft}
-          maxLength={MAX_CHARS}
-          placeholder="Ask about a film or a person…"
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={onKeyDown}
-        />
-        {draft.length > MAX_CHARS * 0.8 && (
-          <span className="composer-count" aria-hidden="true">
-            {draft.length}/{MAX_CHARS}
-          </span>
-        )}
-        <button type="submit" className="composer-send" disabled={busy || !draft.trim()}>
-          Ask <kbd>↵</kbd>
-        </button>
-      </form>
-    </div>
-  );
-}
-
-function PosterReel({ ready }: { ready: boolean }) {
+/* eslint-disable @next/next/no-img-element */
+/** A wide row of posters under the empty input card, so the first screen shows films from the graph. */
+function PosterWall({ ready }: { ready: boolean }) {
   const [films, setFilms] = useState<FilmRow[]>([]);
   useEffect(() => {
     if (!ready || films.length) return;
     const ctrl = new AbortController();
     showcase(ctrl.signal)
-      .then((all) => setFilms(all.filter((f) => f.image).slice(0, 8)))
+      .then((all) => setFilms(all.filter((f) => f.image).slice(0, 12)))
       .catch(() => {
-        /* optional decoration */
+        /* decoration only */
       });
     return () => ctrl.abort();
   }, [ready, films.length]);
-  if (!films.length) return <div className="reel reel-empty" aria-hidden="true" />;
+  if (!films.length) return <div className="wall wall-empty" aria-hidden="true" />;
   return (
-    <ul className="reel" aria-label="Films in the graph">
+    <ul className="wall" aria-label="Films in the graph">
       {films.map((f) => (
         <li key={f.qid}>
           <Link href={filmHref(f.qid)} title={f.year ? `${f.label} (${f.year})` : f.label}>
@@ -219,191 +55,140 @@ function PosterReel({ ready }: { ready: boolean }) {
     </ul>
   );
 }
+/* eslint-enable @next/next/no-img-element */
 
-function Intro({ server }: { server: ServerState }) {
-  const info = server.info;
+/** The kinds of question the graph answers, each with a few questions that are asked when clicked. */
+function AskGuide({ onPick, busy }: { onPick: (q: string) => void; busy: boolean }) {
   return (
-    <div className="intro">
-      <p className="intro-kicker">Wikidata film graph · {info ? formatCount(info.triples) : "2.4M"} facts</p>
-      <h1 className="intro-title">
-        Ask the film graph <em>anything</em> about who made what.
-      </h1>
-      <p className="intro-sub">
-        Facts, filmographies, recommendations and pictures. Each answer is drawn as the path it took through the graph, in
-        the evidence panel.
-      </p>
-      <dl className="intro-stats">
-        <div>
-          <dt>facts</dt>
-          <dd>{info ? formatCount(info.triples) : "2.4M"}</dd>
-        </div>
-        <div>
-          <dt>entities</dt>
-          <dd>{info ? formatCount(info.entities) : "130k"}</dd>
-        </div>
-        <div>
-          <dt>routes</dt>
-          <dd>{EXAMPLES.length}</dd>
-        </div>
-      </dl>
-      <PosterReel ready={server.phase === "ready"} />
-    </div>
+    <section className="guide" aria-labelledby="guide-title">
+      <h2 id="guide-title" className="guide-title">
+        What you can ask
+      </h2>
+      <div className="guide-grid">
+        {QUESTION_KINDS.map((kind) => (
+          <div key={kind.title} className="guide-kind">
+            <h3>{kind.title}</h3>
+            <p>{kind.blurb}</p>
+            <ul>
+              {kind.questions.map((q) => (
+                <li key={q}>
+                  <button type="button" className="guide-q" onClick={() => onPick(q)} disabled={busy}>
+                    {q}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
-function Question({ turn, index }: { turn: Turn; index: number }) {
-  return (
-    <div className="q-row">
-      <span className="q-index">Q{String(index).padStart(2, "0")}</span>
-      <h2 className="q-text">{turn.text}</h2>
-      <span className="q-time">{turn.at}</span>
-    </div>
-  );
-}
-
-const STAGES = ["Reading the question", "Linking entities", "Querying the graph"];
-
-/** Pending answer: the projector reel spins while the stages of the agent run by. */
-function Pending({ waking }: { waking: boolean }) {
-  const seconds = useElapsed(true);
-  const text = waking ? "Waiting for the graph server to wake up" : `${STAGES[Math.min(STAGES.length - 1, Math.floor(seconds / 2))]}…`;
-  return (
-    <div className="a-panel a-pending" role="status">
-      <span className="projector" aria-hidden="true" />
-      {text}
-    </div>
-  );
-}
-
-function Answer({
-  turn,
-  selected,
-  expanded,
-  onSelect,
-  onRetry,
-  waking,
+/** The input card: full while the page is empty, a compact sticky bar once a question is asked. */
+function Composer({
+  inputRef,
+  draft,
+  setDraft,
+  onSend,
+  busy,
+  compact,
+  status,
 }: {
-  turn: Turn;
-  selected: boolean;
-  expanded: boolean;
-  onSelect: (e: MouseEvent<HTMLButtonElement>) => void;
-  onRetry: () => void;
-  waking: boolean;
+  inputRef: RefObject<HTMLTextAreaElement | null>;
+  draft: string;
+  setDraft: (v: string) => void;
+  onSend: () => void;
+  busy: boolean;
+  compact: boolean;
+  status: string;
 }) {
-  if (turn.kind === "pending") return <Pending waking={waking} />;
-  if (turn.kind === "error") {
-    return (
-      <div className="a-panel a-error" role="alert">
-        <span>{turn.error}</span>
-        <button type="button" className="text-btn" onClick={onRetry}>
-          Ask again
+  // the compact bar grows with the text, up to about four lines
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el || !compact) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 112)}px`;
+  }, [draft, compact, inputRef]);
+
+  const onSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    onSend();
+  };
+  // Enter, Cmd/Ctrl+Enter send; Shift+Enter adds a line
+  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      onSend();
+    }
+  };
+  return (
+    <form className={`card composer ${compact ? "compact" : ""}`} onSubmit={onSubmit}>
+      <label htmlFor="question" className="sr-only">
+        Your question
+      </label>
+      <textarea
+        id="question"
+        ref={inputRef}
+        rows={compact ? 1 : 3}
+        className="composer-input"
+        value={draft}
+        maxLength={MAX_CHARS}
+        placeholder={compact ? "Ask another…" : "Who directed Inception?"}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={onKeyDown}
+      />
+      <div className="tools">
+        <span className="status" role="status">
+          {status}
+        </span>
+        <button type="submit" className="btn" disabled={busy || !draft.trim()}>
+          Ask
         </button>
       </div>
-    );
-  }
-  const reply = turn.reply;
-  const bg = backdropOf(reply);
-  const tone = toneOf(reply);
-  return (
-    <div className={`a-panel a-${tone} ${selected ? "selected" : ""}`}>
-      {bg && (
-        <div className="a-backdrop" aria-hidden="true">
-          <span style={{ backgroundImage: `url("${bg}")` }} />
-        </div>
-      )}
-      <div className="a-content">
-        <AnswerBody reply={reply} />
-        <div className="a-meta">
-          <span className={`tag tag-route tag-${tone}`}>{routeName(reply)}</span>
-          {reply.relation && <span className="tag">{reply.relation}</span>}
-          <span className="tag">{reply.latency_ms < 1000 ? `${reply.latency_ms} ms` : `${(reply.latency_ms / 1000).toFixed(1)} s`}</span>
-          <button
-            type="button"
-            className={`tag tag-action ${selected ? "active" : ""}`}
-            onClick={onSelect}
-            aria-expanded={expanded}
-            aria-controls="evidence-panel"
-          >
-            <IconGraph /> evidence · {evidenceCount(reply)}
-          </button>
-        </div>
-      </div>
-    </div>
+    </form>
   );
 }
 
-function EvidencePanel({
-  turn,
-  sheet,
-  onClose,
-  onAsk,
-  closeRef,
-}: {
-  turn: ReplyTurn | null;
-  sheet: boolean;
-  onClose: () => void;
-  onAsk: (q: string) => void;
-  closeRef: RefObject<HTMLButtonElement | null>;
-}) {
+function Answer({ id, reply, onAsk }: { id: number; reply: Reply; onAsk: (q: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const evidenceId = `evidence-${id}`;
+  // opening the log keeps it above the sticky input card
+  useEffect(() => {
+    if (open) document.getElementById(evidenceId)?.scrollIntoView({ behavior: smooth(), block: "nearest" });
+  }, [open, evidenceId]);
   return (
-    <aside
-      id="evidence-panel"
-      className="rail-right"
-      aria-label="Evidence"
-      role={sheet ? "dialog" : undefined}
-      aria-modal={sheet ? true : undefined}
-    >
-      <div className="evidence-header">
-        <div className="evidence-bar">
-          <span className="evidence-mark" aria-hidden="true" />
-          <h2 className="evidence-title">Evidence</h2>
-          {turn && <span className="evidence-count">{evidenceCount(turn.reply)}</span>}
-          <button type="button" className="evidence-close" ref={closeRef} onClick={onClose}>
-            Close
-          </button>
-        </div>
-        {turn ? <p className="evidence-q">{turn.text}</p> : <p className="evidence-kicker">How the selected answer was found in the graph.</p>}
+    <>
+      <AnswerBody reply={reply} onAsk={onAsk} />
+      <div className="turn-foot">
+        <button type="button" className="quiet disclosure" aria-expanded={open} aria-controls={evidenceId} onClick={() => setOpen((o) => !o)}>
+          <Chevron />
+          How it was found
+        </button>
+        <span className="latency">{formatLatency(reply.latency_ms)}</span>
       </div>
-      <div className="evidence-scroll">
-        {turn ? (
-          <Evidence reply={turn.reply} onAsk={onAsk} />
-        ) : (
-          <div className="evidence-empty">
-            <div className="evidence-empty-icon">
-              <IconGraph />
-            </div>
-            <div className="evidence-empty-title">No answer yet</div>
-            <div className="evidence-empty-text">Ask a question. Its path through the graph, the query and the agent&apos;s log appear here.</div>
-          </div>
-        )}
-      </div>
-    </aside>
+      <Evidence reply={reply} id={evidenceId} hidden={!open} />
+    </>
   );
 }
 
 export function Chat() {
-  const server = useServerState();
+  const server = useServer();
   const readyRef = useRef(false);
   useEffect(() => {
     readyRef.current = server.phase === "ready";
   }, [server.phase]);
 
   const [turns, setTurns] = useState<Turn[]>([]);
-  const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [evidenceOpen, setEvidenceOpen] = useState(false);
-  const [tab, setTab] = useState<Tab>("all");
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [announce, setAnnounce] = useState("");
   const nextId = useRef(1);
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const closeRef = useRef<HTMLButtonElement>(null);
-  const openerRef = useRef<HTMLElement | null>(null);
   const count = turns.length;
-  const narrow = useMedia(SHEET_QUERY);
-  const sheetOpen = narrow && evidenceOpen;
+  const empty = count === 0;
 
-  // Bring the newest question to the top of the chat so its answer is read from the start.
+  // Bring the newest question to the top of the screen so its answer is read from the start.
   useEffect(() => {
     if (!count) return;
     const id = nextId.current - 1;
@@ -414,22 +199,34 @@ export function Chat() {
     if (window.matchMedia(DESKTOP_QUERY).matches) inputRef.current?.focus();
   }, []);
 
-  const closeEvidence = useCallback(() => setEvidenceOpen(false), []);
-
-  // The bottom sheet: focus moves into it when it opens and back to the evidence button when it closes
-  // (the cleanup runs after the chat column stops being inert); Escape closes it.
+  // Coming back from a film or person page: the answered questions of this tab come back too.
+  const restored = useRef(false);
   useEffect(() => {
-    if (!sheetOpen) return;
-    closeRef.current?.focus();
-    const onKey = (e: globalThis.KeyboardEvent) => {
-      if (e.key === "Escape") closeEvidence();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      openerRef.current?.focus();
-    };
-  }, [sheetOpen, closeEvidence]);
+    // a timeout, not a frame: frames do not run in a background tab
+    const timer = setTimeout(() => {
+      const kept = loadThread<Turn>().filter((t) => t && t.kind === "reply" && typeof t.id === "number");
+      if (kept.length) {
+        // negative ids: never clash with a question sent meanwhile (/?q=...)
+        const back = kept.map((t, i) => ({ ...t, id: i - kept.length }));
+        // the page may come back with its state kept (router cache): restore only into an empty thread
+        setTurns((now) => (now.some((t) => t.kind === "reply") ? now : [...back, ...now]));
+        setTimeout(() => document.getElementById(`q-${back[back.length - 1].id}`)?.scrollIntoView({ block: "start" }), 50);
+      }
+      restored.current = true;
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
+  useEffect(() => {
+    if (restored.current) saveThread(turns.filter((t) => t.kind === "reply"));
+  }, [turns]);
+
+  // The latest answer's image goes to the ambient field behind the page.
+  const latest = [...turns].reverse().find((t): t is Extract<Turn, { kind: "reply" }> => t.kind === "reply");
+  const backdrop = latest ? backdropOf(latest.reply) : null;
+  useEffect(() => {
+    setBackdrop(backdrop);
+  }, [backdrop]);
+  useEffect(() => () => setBackdrop(null), []);
 
   const send = useCallback(
     async (raw: string) => {
@@ -437,18 +234,15 @@ export function Chat() {
       if (!text || busy) return;
       setBusy(true);
       setDraft("");
-      setEvidenceOpen(false);
       const id = nextId.current++;
-      const at = clock();
-      setTurns((t) => [...t, { id, kind: "pending", text, at }]);
+      setTurns((t) => [...t, { id, kind: "pending", text }]);
       try {
         if (!readyRef.current && !(await waitUntilReady())) {
           throw new ApiError("The graph server did not start. Try again in a minute.", 503);
         }
         const reply = await ask(text);
-        setTurns((t) => t.map((x) => (x.id === id ? { id, kind: "reply", text, at, reply } : x)));
-        setSelectedId(id);
-        setAnnounce(`${routeName(reply)}. ${reply.answer || "Picture ready."}`);
+        setTurns((t) => t.map((x) => (x.id === id ? { id, kind: "reply", text, reply } : x)));
+        setAnnounce(`${isGuess(reply) ? "Guess. " : ""}${reply.answer || "Picture ready."}`);
       } catch (err) {
         const error =
           err instanceof ApiError
@@ -456,7 +250,7 @@ export function Chat() {
               ? "The graph server is still starting. Ask again in a few seconds."
               : err.message
             : "Could not reach the graph server. Check your connection and ask again.";
-        setTurns((t) => t.map((x) => (x.id === id ? { id, kind: "error", text, at, error } : x)));
+        setTurns((t) => t.map((x) => (x.id === id ? { id, kind: "error", text, error } : x)));
         setAnnounce(error);
       } finally {
         setBusy(false);
@@ -478,84 +272,70 @@ export function Chat() {
     }
   }, [send]);
 
-  const reset = () => {
-    setTurns([]);
-    setSelectedId(null);
-    setEvidenceOpen(false);
-    setAnnounce("");
-    if (window.matchMedia(DESKTOP_QUERY).matches) inputRef.current?.focus();
-  };
+  // The logo, pressed on this page, clears the thread.
+  useEffect(() => {
+    const reset = () => {
+      setTurns([]);
+      setAnnounce("");
+      if (window.matchMedia(DESKTOP_QUERY).matches) inputRef.current?.focus();
+    };
+    window.addEventListener(HOME_EVENT, reset);
+    return () => window.removeEventListener(HOME_EVENT, reset);
+  }, []);
 
-  const replies = turns.filter((t): t is ReplyTurn => t.kind === "reply");
-  const selected = replies.find((t) => t.id === selectedId) ?? replies[replies.length - 1] ?? null;
+  const status =
+    draft.length >= MAX_CHARS
+      ? `${MAX_CHARS} characters at most`
+      : busy && server.phase !== "ready" && server.phase !== "checking"
+        ? "Your question is sent when the graph is ready."
+        : "";
 
   return (
-    <div className="app">
-      <TopBar server={server} onHome={reset} inert={sheetOpen} />
-      <div className={`workspace ${evidenceOpen ? "evidence-open" : ""}`}>
-        <section className="chat-col" aria-label="Ask the graph" inert={sheetOpen}>
-          <RouteTabs tab={tab} setTab={setTab} onPick={send} busy={busy} />
-          <WakeBanner server={server} />
-          <p className="sr-only" role="status" aria-live="polite">
-            {announce}
-          </p>
-          <main className="chat-scroll" id="main" tabIndex={-1}>
-            {turns.length === 0 ? (
-              <Intro server={server} />
-            ) : (
-              <>
-                <h1 className="sr-only">CineGraph: ask the film graph</h1>
-                {turns.map((t, i) => {
-                  const isSelected = t.kind === "reply" && selected?.id === t.id;
-                  return (
-                    <article key={t.id} className="turn" id={`q-${t.id}`}>
-                      <Question turn={t} index={i + 1} />
-                      <Answer
-                        turn={t}
-                        waking={server.phase === "waking" || server.phase === "offline"}
-                        selected={isSelected}
-                        expanded={narrow ? isSelected && evidenceOpen : isSelected}
-                        onSelect={(e) => {
-                          // a second press on the open answer's button closes the sheet
-                          if (isSelected && evidenceOpen) {
-                            setEvidenceOpen(false);
-                            return;
-                          }
-                          openerRef.current = e.currentTarget;
-                          setSelectedId(t.id);
-                          setEvidenceOpen(true);
-                        }}
-                        onRetry={() => {
-                          setTurns((all) => all.filter((x) => x.id !== t.id));
-                          send(t.text);
-                        }}
-                      />
-                    </article>
-                  );
-                })}
-                <div className="thread-tools">
-                  <button type="button" className="text-btn" onClick={reset}>
-                    <IconTrash /> Clear {turns.length === 1 ? "question" : `${turns.length} questions`}
-                  </button>
-                </div>
-              </>
-            )}
-          </main>
-          <Composer inputRef={inputRef} draft={draft} setDraft={setDraft} onSend={() => send(draft)} busy={busy} />
-        </section>
+    <main id="main" className={`ask ${empty ? "is-empty" : ""}`} tabIndex={-1}>
+      <p className="sr-only" role="status" aria-live="polite">
+        {announce}
+      </p>
 
-        {sheetOpen && <button type="button" className="sheet-scrim" aria-label="Close evidence" tabIndex={-1} onClick={closeEvidence} />}
-        <EvidencePanel
-          turn={selected}
-          sheet={sheetOpen}
-          onClose={closeEvidence}
-          onAsk={(q) => {
-            setEvidenceOpen(false);
-            send(q);
-          }}
-          closeRef={closeRef}
-        />
-      </div>
-    </div>
+      {empty ? (
+        <div className="hero">
+          <h1 className="hero-title">Ask anything about films.</h1>
+          <p className="hero-sub">Directors, casts, release dates, similar films and pictures, from Wikidata.</p>
+        </div>
+      ) : (
+        <div className="thread">
+          <h1 className="sr-only">CineGraph: ask the film graph</h1>
+          {turns.map((t) => (
+            <article key={t.id} className="turn" id={`q-${t.id}`}>
+              <h2 className="turn-q">{t.text}</h2>
+              {t.kind === "pending" && (
+                <p className="turn-wait" role="status">
+                  Looking it up…
+                </p>
+              )}
+              {t.kind === "error" && (
+                <p className="turn-error" role="alert">
+                  <span>{t.error}</span>
+                  <button
+                    type="button"
+                    className="quiet"
+                    onClick={() => {
+                      setTurns((all) => all.filter((x) => x.id !== t.id));
+                      send(t.text);
+                    }}
+                  >
+                    Try again
+                  </button>
+                </p>
+              )}
+              {t.kind === "reply" && <Answer id={t.id} reply={t.reply} onAsk={send} />}
+            </article>
+          ))}
+        </div>
+      )}
+
+      <Composer inputRef={inputRef} draft={draft} setDraft={setDraft} onSend={() => send(draft)} busy={busy} compact={!empty} status={status} />
+      {empty && <AskGuide onPick={send} busy={busy} />}
+      {empty && <PosterWall ready={server.phase === "ready"} />}
+    </main>
   );
 }

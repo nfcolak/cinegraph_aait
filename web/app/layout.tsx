@@ -1,16 +1,17 @@
 import type { Metadata, Viewport } from "next";
-import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
+import { Geist, Geist_Mono } from "next/font/google";
+import { Shell } from "./components/Shell";
 import "./styles/tokens.css";
 import "./styles/shell.css";
 import "./styles/components.css";
 import "./styles/ask.css";
-import "./styles/pages.css";
+import "./styles/catalog.css";
+import "./styles/detail.css";
 
-// Cinema console: warm dark panels, IBM Plex Sans for reading, IBM Plex Mono for labels
-// and data, projector amber as the accent and screen red for evidence.
+// Quiet UI: Geist for reading, Geist Mono for example chips, the query, the log and QIDs.
 
-const sans = IBM_Plex_Sans({ subsets: ["latin"], weight: ["400", "500", "600", "700"], variable: "--font-plex-sans", display: "swap" });
-const mono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-plex-mono", display: "swap" });
+const sans = Geist({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-geist-sans", display: "swap" });
+const mono = Geist_Mono({ subsets: ["latin"], weight: ["400", "500"], variable: "--font-geist-mono", display: "swap" });
 
 export const metadata: Metadata = {
   title: "CineGraph · Ask the film graph",
@@ -24,18 +25,27 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0e0c0a",
-  colorScheme: "dark",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f5f4f1" },
+    { media: "(prefers-color-scheme: dark)", color: "#0c0c0e" },
+  ],
+  colorScheme: "light dark",
 };
+
+// Runs before first paint: the saved theme, else the system scheme.
+const THEME_SCRIPT = `try{var t=localStorage.getItem("cg-theme");if(t!=="light"&&t!=="dark")t=matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light";document.documentElement.dataset.theme=t}catch(e){document.documentElement.dataset.theme="light"}`;
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={`${sans.variable} ${mono.variable}`}>
+    <html lang="en" className={`${sans.variable} ${mono.variable}`} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
+      </head>
       <body>
         <a href="#main" className="skip-link">
           Skip to content
         </a>
-        {children}
+        <Shell>{children}</Shell>
       </body>
     </html>
   );

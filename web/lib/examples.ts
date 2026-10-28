@@ -1,57 +1,49 @@
-import type { Route } from "./api";
-
-export interface ExampleGroup {
-  route: Route;
-  title: string;
-  blurb: string;
-  questions: string[];
+export interface QuestionKind {
+  title: string; // the kind of question, in sentence case
+  blurb: string; // one muted line on what the graph does for it
+  questions: string[]; // each one is sent as is when clicked
 }
 
-// Every question here was asked on the running API (POST /api/chat) on 2026-10-27 and came back on the route
-// of its group with a correct answer. Dropped that day: "Who is the composer of Titanic?" (the graph holds only
-// the 1953 film), "Who directed Galaxy Quest?" and "Who is the composer of Pulp Fiction?" (no prediction
-// offered), "What is the genre of Central Station?" (no match) and the "A.I. Artificial Intelligence" request
-// (title not found). A prediction here is the graph saying a fact is missing plus a flagged embedding guess.
-export const EXAMPLES: ExampleGroup[] = [
+// Shown on the empty ask page. Every question here was asked on the running API (POST /api/chat) on
+// 2026-10-28 and came back on the right route with a correct answer.
+export const QUESTION_KINDS: QuestionKind[] = [
   {
-    route: "factual",
-    title: "Facts",
-    blurb: "Looked up directly in the graph.",
+    title: "Facts about a film",
+    blurb: "Director, cast, composer, release date, genre.",
+    questions: ["Who directed Inception?", "When was The Godfather released?", "Who composed the music for Jaws?"],
+  },
+  {
+    title: "People and their films",
+    blurb: "Filmographies and the roles people played.",
     questions: [
-      "Who directed Inception?",
       "Which movies did Christopher Nolan direct?",
-      "Who is the composer of Jaws?",
-      "When was The Godfather released?",
+      "In which movies did Daniel Radcliffe play?",
+      "Who played Jack Sparrow?",
     ],
   },
   {
-    route: "prediction",
-    title: "Predictions",
-    blurb: "When the graph has no answer, embeddings guess one.",
-    questions: [
-      "Who is the composer of Once Upon a Time in Hollywood?",
-      "Who is the composer of The Doors?",
-      "Who is the composer of American Sniper?",
-    ],
+    title: "Series",
+    blurb: "The first, third or last film of a series.",
+    questions: ["Who directed the third Harry Potter film?", "What is the first Star Wars movie?"],
   },
   {
-    route: "recommendation",
     title: "Recommendations",
     blurb: "Films that share genre, people and studio.",
-    questions: [
-      "Recommend movies like The Matrix and Blade Runner",
-      "I loved Up, what next?",
-      "Recommend me some horror movies",
-    ],
+    questions: ["I loved Up, what next?", "Recommend movies like The Matrix"],
   },
   {
-    route: "multimedia",
     title: "Pictures",
-    blurb: "Posters, portraits and scenes.",
-    questions: [
-      "Show me a picture of Halle Berry",
-      "Show me the poster of Interstellar",
-      "Show me Brad Pitt in a scene from Fight Club",
-    ],
+    blurb: "Posters, stills and portraits.",
+    questions: ["Show me the poster of Jaws", "What does Keanu Reeves look like?"],
+  },
+  {
+    title: "When the graph has no answer",
+    blurb: "A guess from graph embeddings, marked as a guess.",
+    questions: ["Who is the composer of Once Upon a Time in Hollywood?"],
+  },
+  {
+    title: "Two questions at once",
+    blurb: "Ask about one film twice in one sentence.",
+    questions: ["Who directed and wrote Good Will Hunting?"],
   },
 ];

@@ -1,0 +1,228 @@
+/*
+  Catalogue (/films) and the about page.
+  Uses the quiet tokens and the shared tile, row and quiet-button classes from components.css.
+*/
+
+/* ---------------------------------------------------------------- catalogue */
+
+.cat {
+  padding-bottom: 8px;
+}
+
+.cat-head {
+  margin-bottom: 20px;
+}
+
+.cat-head h1 {
+  font-size: var(--fs-page);
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.cat-count {
+  margin-top: 4px;
+  min-height: 1.6em;
+  color: var(--muted);
+  font-size: var(--fs-base);
+}
+
+/* glass search pill, full width, 48 high */
+.cat-search {
+  display: block;
+}
+
+.cat-search input {
+  display: block;
+  width: 100%;
+  height: 48px;
+  padding: 0 22px;
+  border: 1px solid var(--card-rim);
+  border-radius: var(--r-pill);
+  background: var(--card);
+  box-shadow: var(--shadow);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  backdrop-filter: blur(28px) saturate(160%);
+  color: var(--ink);
+  font-size: 16px;
+  outline: 0;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.cat-search input::placeholder {
+  color: var(--muted);
+}
+
+.cat-search input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
+
+.cat-search input:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--ink) 55%, transparent);
+  outline-offset: 2px;
+}
+
+/* sort as quiet text buttons on the right; the current one is in ink */
+.cat-sort {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 2px;
+  margin: 10px 0 24px;
+}
+
+.cat-sort .quiet[aria-checked="true"] {
+  background: none;
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.cat-sort .quiet:hover {
+  background: var(--faint);
+}
+
+.cat-people {
+  margin-bottom: 28px;
+}
+
+/* fills the 1560 column; tile size comes from .tiles in components.css (grows with the viewport) */
+.cat-grid {
+  row-gap: 28px;
+}
+
+.cat-empty {
+  margin-bottom: 20px;
+}
+
+.cat-more {
+  display: flex;
+  justify-content: center;
+  margin-top: 28px;
+}
+
+/* ---------------------------------------------------------------- about */
+
+.about {
+  max-width: 720px;
+  margin: 0 auto;
+  padding-bottom: 8px;
+}
+
+.about-head {
+  margin-bottom: 28px;
+}
+
+.about-head h1 {
+  font-size: var(--fs-page);
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.about-lede {
+  margin-top: 12px;
+  font-size: var(--fs-answer);
+  line-height: 1.55;
+}
+
+.about-facts {
+  margin-bottom: 20px;
+}
+
+.about-facts > div {
+  border-top: 1px solid var(--hair);
+}
+
+.about-facts > div:last-child {
+  border-bottom: 1px solid var(--hair);
+}
+
+.about-section {
+  margin-top: 40px;
+}
+
+.about-section h2 {
+  margin-bottom: 10px;
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.about-section p {
+  color: var(--ink);
+  font-size: var(--fs-base);
+  line-height: 1.65;
+}
+
+.about-section p + p {
+  margin-top: 10px;
+}
+
+.about-section a {
+  color: var(--ink);
+  text-underline-offset: 3px;
+}
+
+.about-section code {
+  padding: 1px 5px;
+  border-radius: 6px;
+  background: var(--faint);
+  font-size: 0.88em;
+}
+
+/* numbered lists: number in a hanging gutter, text in ink, the number muted */
+.about-steps,
+.about-sub {
+  counter-reset: step;
+}
+
+.about-steps > li,
+.about-sub > li {
+  position: relative;
+  padding-left: 30px;
+  counter-increment: step;
+  color: var(--ink);
+  font-size: var(--fs-base);
+  line-height: 1.65;
+}
+
+.about-steps > li + li {
+  margin-top: 12px;
+}
+
+.about-steps > li::before,
+.about-sub > li::before {
+  content: counter(step) ".";
+  position: absolute;
+  left: 0;
+  min-width: 22px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.about-steps strong {
+  font-weight: 500;
+}
+
+.about-sub {
+  margin-top: 6px;
+}
+
+.about-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  margin-top: 14px;
+}
+
+/* ---------------------------------------------------------------- phones */
+
+@media (max-width: 640px) {
+  .cat-search input {
+    padding: 0 18px;
+  }
+
+  .cat-sort {
+    justify-content: flex-start;
+    margin-left: -10px;
+  }
+}

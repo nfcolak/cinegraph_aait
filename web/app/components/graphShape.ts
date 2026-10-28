@@ -1,19 +1,20 @@
 import type { Reply } from "@/lib/api";
 
 // Pure and free of JSX so scripts/check-graph-shape.mts can load it with node --experimental-strip-types.
+// The answer's path through the graph; the disclosure shows it as one text line (pathText).
 
 export const MAX_LEFT = 3;
 export const MAX_RIGHT = 4;
 
 export interface GraphShape {
-  left: string[]; // subject side: amber nodes
-  edge: string; // relation shown in the label pill
+  left: string[]; // subject side
+  edge: string; // relation
   right: string[]; // object side
-  more: number; // objects not drawn: the dashed "+N more" node
-  reverse: boolean; // arrows point from the right nodes to the left ones (inverse relation)
+  more: number; // objects beyond right
+  reverse: boolean; // the arrows point from the right items to the left ones (inverse relation)
 }
 
-/** The answer as node(s), a relation edge and node(s); null when the reply has nothing to draw. */
+/** The answer as item(s), a relation and item(s); null when the reply has no path to show. */
 export function graphShape(reply: Reply): GraphShape | null {
   if (reply.route === "recommendation" && reply.seeds.length) {
     const films = reply.cards.filter((c) => c.type === "film").map((c) => c.label);
@@ -43,9 +44,24 @@ export function graphShape(reply: Reply): GraphShape | null {
   return { left: [reply.subject.label], edge: reply.relation, right: objects.slice(0, shown), more: Math.max(0, total - shown), reverse: reply.inverse };
 }
 
-/** The triple in words, for the SVG's aria-label. */
+/** The triple in words. */
 export function describeShape(shape: GraphShape): string {
   const left = shape.left.join(", ");
   const right = shape.right.join(", ") + (shape.more ? ` and ${shape.more} more` : "");
   return shape.reverse ? `${right} ${shape.edge} ${left}` : `${left} ${shape.edge} ${right}`;
+}
+
+export const PATH_SHOWN = 3;
+
+function listText(items: string[], extra: number): string {
+  const shown = items.slice(0, PATH_SHOWN);
+  const rest = items.length + extra - shown.length;
+  return shown.join(", ") + (rest > 0 ? ` and ${rest} more` : "");
+}
+
+/** The path as one text line: "Inception → director → Christopher Nolan"; a list shows its first 3 items, then "and N more". */
+export function pathText(shape: GraphShape): string {
+  const left = listText(shape.left, 0);
+  const right = listText(shape.right, shape.more);
+  return shape.reverse ? `${right} → ${shape.edge} → ${left}` : `${left} → ${shape.edge} → ${right}`;
 }
