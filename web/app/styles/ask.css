@@ -387,12 +387,25 @@
   animation-delay: 120ms;
 }
 
-.guide-title {
+.guide-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2px 24px;
   margin-bottom: 14px;
-  color: var(--muted);
+}
+
+.guide-title {
+  color: var(--ink);
   font-size: var(--fs-small);
   font-weight: 500;
   letter-spacing: 0.01em;
+}
+
+.guide-note {
+  color: var(--muted);
+  font-size: var(--fs-small);
 }
 
 /* an index: one line per kind of question, hairlines between */

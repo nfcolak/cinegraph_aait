@@ -27,13 +27,16 @@ function Chevron() {
   );
 }
 
-/** The kinds of question the graph answers: one line each, the kind on the left, its questions inline. */
+/** Sample questions, one line per kind; examples only, any wording works. */
 function AskGuide({ onPick, busy }: { onPick: (q: string) => void; busy: boolean }) {
   return (
     <section className="guide" aria-labelledby="guide-title">
-      <h2 id="guide-title" className="guide-title">
-        What you can ask
-      </h2>
+      <div className="guide-head">
+        <h2 id="guide-title" className="guide-title">
+          Sample questions
+        </h2>
+        <p className="guide-note">A few examples. Ask about any film, person or series in the graph, in your own words.</p>
+      </div>
       <dl className="guide-list">
         {QUESTION_KINDS.map((kind) => (
           <div key={kind.title} className="guide-row">
