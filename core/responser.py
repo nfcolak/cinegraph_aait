@@ -14,7 +14,7 @@ from core.data import build_label_maps, WD, load_ratings, load_image_map
 from core.entity import extract_title, resolve_entity
 from core.relation import parse_relation, resolve_property_uri_from_local
 from core.query import ONE_QID_ONE_RELATION, ONE_LABEL_ONE_RELATION
-from core.intent import parse_intent, USE_THRESHOLD
+from core.intent import parse_intent, ordinal_span, USE_THRESHOLD
 from core.linker import get_linker, peek_linker, normalize, STOP
 from core.filmography import (Filmography, role_of, genre_of, years_of, mask_names, _year_phrase, COMPANY_ROLE,
                               ROLE_PROP, WDT)
@@ -105,6 +105,9 @@ MAX_VIA_VALUES = 6        # values listed for a non-film subject
 MAX_FILMS_LISTED = 10     # films named in a films_of answer
 MAX_ALTERNATIVES = 5
 LINK_LIMIT = 10
+_ORDINAL_IDENTITY = re.compile(r"^\s*(?:(?:what|which)(?:\s+(?:film|movie))?\s+(?:is|was|'s)|name|tell\s+me)\b", re.I)
+ORDINAL_WORDS = {1: "first", 2: "second", 3: "third", 4: "fourth", 5: "fifth", 6: "sixth", 7: "seventh",
+                 8: "eighth", 9: "ninth", 10: "tenth"}
 GUESS_NEIGHBOURS = 10     # TransE: nearest entities tried for a plausible guess
 YEAR_SLACK = 1            # "Titanic (1997)" still means a film dated 1996-1998
 
@@ -1096,8 +1099,151 @@ class Responser:
             return False
         return re.search(re.escape(intent.mention) + r"['’]?s?\s+(?:movies|films)\b", message, re.I) is not None
 
+    # ----- ordinals: "the first Harry Potter film", "the last film of The Matrix" -----
+
+    @staticmethod
+    def _title_family(linker, base):
+        """Films titled like a franchise: "Toy Story", "Toy Story 2", "Star Wars: Episode IV ..."."""
+        stem = re.sub(r"^the\s+", "", base.strip().lower())
+        if not stem:
+            return []
+        tail = re.compile(re.escape(stem) + r"(?:\s*(?:\d+|[ivx]+)\b|\s*[:–—-]|$)")
+        out = []
+        for uri, label in linker.lbl.items():
+            lab = re.sub(r"^the\s+", "", label.lower())
+            if lab.startswith(stem) and tail.match(lab) and linker.kind_of(uri) == "film":
+                out.append(str(uri))
+        return out
+
+    @staticmethod
+    def _series_by_words(linker, key):
+        """A series named by the key plus series words only ("Twilight" -> "The Twilight Saga"):
+        (its films, its label), the one with the most films, or ([], None)."""
+        words = key.split()
+        if not words:
+            return [], None
+        filler = {"saga", "series", "film", "films", "movie", "movies", "franchise", "trilogy", "collection",
+                  "universe", "original", "in", "the"}
+        idx = None
+        for w in words:
+            if w in STOP:
+                continue
+            hits = set(linker.tok.get(w, ()))
+            idx = hits if idx is None else idx & hits
+            if not idx:
+                return [], None
+        if not idx:
+            return [], None
+        best, best_label, best_key = [], None, None
+        for i in idx:
+            k = linker.keys[i]
+            extra = [w for w in k.split() if w not in words]
+            if not extra or any(w not in filler for w in extra):
+                continue
+            for uri in linker.index.get(k, ()):
+                if linker.kind_of(uri) == "series":
+                    members = linker.films_of_entity(uri)
+                    # most films; on a tie a saga or series before a "universe", then the shorter name
+                    rank = (len(members), "universe" not in extra, -len(extra))
+                    if best_key is None or rank > best_key:
+                        best, best_label, best_key = members, linker.lbl.get(uri), rank
+        return (best, best_label) if len(best) >= 2 else ([], None)
+
+    def _ordinal_family(self, linker, base, message):
+        """(films of a series in release order, group label) for an ordinal question, or ([], None)."""
+        key = normalize(base)
+        cands = linker.link(base, want=VIA_FILMS_KINDS, question=message, limit=LINK_LIMIT)
+        groups = [c for c in cands if c.kind in VIA_FILMS_KINDS and self._covers(base, c)]
+        groups.sort(key=lambda c: (c.kind != "series", -c.score))
+        films, label = [], None
+        for g in groups:
+            members = linker.films_of_entity(g.uri)
+            if g.kind == "character":
+                # a character also appears in crossovers ("Space Jam"): keep the films named after it when
+                # at least two are
+                named = [f for f in members if key and key in normalize(linker.lbl.get(rdflib.URIRef(f), ""))]
+                members = named if len(named) >= 2 else members
+            if len(members) >= 2:
+                films, label = members, g.label
+                break
+        if not films:
+            films, label = self._series_by_words(linker, key)
+        if not films:
+            films = self._title_family(linker, base)
+            label = base
+        seen, ordered = set(), []
+        for f in films:
+            y = linker._year(rdflib.URIRef(f))
+            k = (normalize(linker.lbl.get(rdflib.URIRef(f), "")), y)
+            if k not in seen:
+                seen.add(k)
+                ordered.append((f, y))
+        if any(y is not None for _, y in ordered):
+            ordered = [(f, y) for f, y in ordered if y is not None]
+        ordered.sort(key=lambda fy: (fy[1], linker.lbl.get(rdflib.URIRef(fy[0]), "")))
+        return [f for f, _ in ordered], label
+
+    def _ordinal_pick(self, linker, span, message):
+        """(film candidate, lead sentence, family) for an ordinal span of a non-fact question, or None."""
+        _start, _end, series, n = span
+        base = re.sub(r"\s+(?:film\s+|movie\s+)?(?:series|franchise|saga|trilogy|films|movies|collection|universe)$",
+                      "", series.strip(), flags=re.I) or series
+        films, label = self._ordinal_family(linker, base, message)
+        if len(films) < 2 or n > len(films):
+            return None
+        label = re.sub(r"^the\s+", "", label or base, flags=re.I)
+        film = linker._cand(rdflib.URIRef(films[n - 1] if n > 0 else films[-1]), "exact", 1.0, {"film"}, None)
+        word = ORDINAL_WORDS.get(n, f"{n}th") if n > 0 else "last"
+        which = f"{film.label} ({film.year})" if film.year else film.label
+        return film, f"The {word} of the {len(films)} {label} films in the graph is {which}.", films
+
+    def _answer_ordinal(self, intent, graph, linker, ent_to_lbl, prop_uri, message):
+        """A fact about the n-th film of a series. Returns a result dict, or None to answer normally."""
+        # a title that starts with an ordinal word ("the last samurai") is that film, not an ordinal
+        if intent.raw_mention:
+            raw_key = normalize(intent.raw_mention)
+            for c in linker.link(intent.raw_mention, want={"film"}, year=intent.year, limit=LINK_LIMIT):
+                if c.kind == "film" and normalize(c.label) == raw_key:
+                    plain = copy.copy(intent)
+                    plain.mention, plain.ordinal, plain.raw_mention = intent.raw_mention, None, None
+                    return self._answer_fact(plain, graph, linker, ent_to_lbl, prop_uri, message)
+        base = re.sub(r"\s+(?:film\s+|movie\s+)?(?:series|franchise|saga|trilogy|films|movies|collection|universe)$",
+                      "", intent.mention.strip(), flags=re.I) or intent.mention
+        films, label = self._ordinal_family(linker, base, message)
+        if len(films) < 2:
+            return None
+        label = re.sub(r"^the\s+", "", label or base, flags=re.I)  # "the 3 Matrix films"
+        n = intent.ordinal
+        word = ORDINAL_WORDS.get(n, f"{n}th") if n > 0 else "last"
+        if n > len(films):
+            names = ", ".join(f"{linker.lbl.get(rdflib.URIRef(f))} ({linker._year(rdflib.URIRef(f))})" for f in films[:6])
+            more = f", and {len(films) - 6} more" if len(films) > 6 else ""
+            film0 = linker._cand(rdflib.URIRef(films[0]), "exact", 1.0, {"film"}, None)
+            return {'relation': intent.relation, 'property_uri': str(prop_uri), 'entity_uri': film0.uri,
+                    'cand': film0, 'kind': "film", 'via_films': [], 'alternatives': [], 'family': films,
+                    'answer_uris': [], 'sparql': None, 'inverse': False, 'gap': True,
+                    'answer': f"The graph has only {len(films)} {label} films, so there is no {word} one: {names}{more}."}
+        uri = films[n - 1] if n > 0 else films[-1]
+        film = linker._cand(rdflib.URIRef(uri), "exact", 1.0, {"film"}, None)
+        uris, labels, sparql = self._fact_for_film(graph, ent_to_lbl, film, prop_uri)
+        which = f"{film.label} ({film.year})" if film.year else film.label
+        lead = f"The {word} of the {len(films)} {label} films in the graph is {which}."
+        res = {'relation': intent.relation, 'property_uri': str(prop_uri), 'entity_uri': film.uri,
+               'cand': film, 'kind': "film", 'via_films': [], 'alternatives': [], 'family': films,
+               'answer_uris': uris, 'sparql': sparql, 'inverse': False, 'lead': lead}
+        if labels:
+            res['answer'] = f"{lead} {self._forward_text(intent.relation, labels, film.label)}"
+        else:
+            res['answer'] = f"{lead} The graph has no {intent.relation} for it."
+            res['gap'] = True
+        return res
+
     def _answer_fact(self, intent, graph, linker, ent_to_lbl, prop_uri, message, kinds=FACT_KINDS):
         """One fact sub-question. Returns a result dict (answer may be None) or None when nothing linked."""
+        if getattr(intent, "ordinal", None) and kinds is FACT_KINDS:
+            res = self._answer_ordinal(intent, graph, linker, ent_to_lbl, prop_uri, message)
+            if res is not None:
+                return res
         cands = []
         if kinds is FACT_KINDS and self._plural_form(intent, message):
             for k in ({"series"}, {"character"}):
@@ -1244,7 +1390,8 @@ class Responser:
             if not prop_uri:
                 results.append(None)
                 continue
-            key = (sub.kind, sub.relation, sub.mention, sub.year, sub.genre, sub.count, sub.year_from, sub.year_to)
+            key = (sub.kind, sub.relation, sub.mention, sub.year, sub.genre, sub.count, sub.year_from, sub.year_to,
+                   sub.ordinal)
             if key not in memo:
                 if sub.kind == "fact":
                     memo[key] = self._answer_fact(sub, graph, linker, ent_to_lbl, prop_uri, message)
@@ -1266,10 +1413,16 @@ class Responser:
                                                'kind': c.kind} for c in first['alternatives']]
             return text, first
 
-        sentences = []
+        sentences, leads = [], set()
         for sub, r in zip([intent] + list(intent.parts), results):
             if r and r.get('answer'):
-                sentences.append(r['answer'])
+                text = r['answer']
+                lead = r.get('lead')
+                if lead and lead in leads and text.startswith(lead):
+                    text = text[len(lead):].lstrip()  # "the first Matrix film is ..." said once
+                elif lead:
+                    leads.add(lead)
+                sentences.append(text)
             elif sub.relation:
                 about = r['cand'].label if r else (sub.mention or "it")
                 sentences.append(f"I could not find the {sub.relation} of {about}.")
@@ -1282,6 +1435,7 @@ class Responser:
             entity_uri=lead['entity_uri'], relation=lead['relation'], property_uri=lead['property_uri'],
             inverse=lead['inverse'], sparql=lead['sparql'], answer_uris=uris,
             intent=intent.to_dict(), subject_kind=lead['kind'], via_films=list(lead['via_films']),
+            family=list(lead.get('family') or []),
             gap=all(r.get('gap') for r in answered),
             alternatives=[{'uri': c.uri, 'qid': c.qid, 'label': c.label, 'year': c.year, 'kind': c.kind}
                           for c in lead['alternatives']],
@@ -1512,7 +1666,7 @@ class Responser:
             'route': None, 'entity_uri': None, 'relation': None, 'property_uri': None,
             'inverse': False, 'sparql': None, 'answer_uris': [], 'seeds': [],
             'recommendations': [], 'image': None, 'rewritten': None, 'gap': False,
-            'intent': None, 'subject_kind': None, 'via_films': [], 'alternatives': [], 'parts': [],
+            'intent': None, 'subject_kind': None, 'via_films': [], 'family': [], 'alternatives': [], 'parts': [],
         }
         original_message = message
 
@@ -1522,6 +1676,21 @@ class Responser:
         map_time = time.time() - map_start
         if map_time > 0.1:
             print(f"[responser] Label maps took {map_time:.2f}s")
+
+        # "the first Harry Potter film" outside a fact question (a picture, a recommendation, "which is ..."):
+        # name the film, then answer the question about that title
+        span = ordinal_span(message)
+        if span and not parse_intent(message).ordinal:
+            picked = self._ordinal_pick(get_linker(graph, _ent_to_lbl), span, message)
+            if picked:
+                film, lead, family = picked
+                if _ORDINAL_IDENTITY.match(message):
+                    self.last_meta.update(route='factual', entity_uri=film.uri, subject_kind='film',
+                                          answer_uris=[film.uri], family=family)
+                    return lead
+                message = f'{message[:span[0]]}"{film.label}"{message[span[1]:]}'
+                self.last_meta['rewritten'] = message
+                print(f"[responser] Ordinal resolved: {lead}")
 
         # 0) Multimedia first (posters, photos, etc.)
         if is_multimedia_query(message):

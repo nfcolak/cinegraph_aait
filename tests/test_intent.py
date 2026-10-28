@@ -314,7 +314,7 @@ d = parse_intent("Who directed Good Will Hunting and who starred in it?").to_dic
 results.append(check("to_dict is JSON safe",
                      json.loads(json.dumps(d)) == d and d["parts"][0]["relation"] == "cast member"
                      and set(d) == {"kind", "relation", "mention", "quoted", "year", "genre", "confidence", "parts",
-                                    "count", "year_from", "year_to"}))
+                                    "count", "year_from", "year_to", "ordinal"}))
 results.append(check("Intent defaults", Intent("unknown", None, None).confidence == 0.0
                      and Intent("unknown", None, None).parts == []))
 

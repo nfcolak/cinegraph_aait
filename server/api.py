@@ -251,7 +251,14 @@ def build_reply(message: str, answer: str, meta: Dict[str, Any], trace_raw: str,
     suggestions: List[Dict[str, Any]] = []
     suggestions_title = "Films with a similar title in the graph"
     via = [u for u in (meta.get("via_films") or []) if u]
-    if via and STATE.catalog is not None:
+    family = [u for u in (meta.get("family") or []) if u]
+    if family and STATE.catalog is not None:
+        # "the first Harry Potter film": the series in release order
+        by_qid = STATE.catalog.film_by_qid
+        rows = [by_qid[q] for q in (_qid(u) for u in family) if q in by_qid]
+        suggestions = [STATE.catalog._public(r) for r in rows[:12]]
+        suggestions_title = "The series in the graph, in release order"
+    elif via and STATE.catalog is not None:
         by_qid = STATE.catalog.film_by_qid
         rows = [by_qid[q] for q in (_qid(u) for u in via) if q in by_qid]
         suggestions = [STATE.catalog._public(r) for r in rows[:12]]

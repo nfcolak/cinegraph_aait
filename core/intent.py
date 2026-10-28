@@ -40,6 +40,8 @@ class Intent:
     count: bool = False            # "how many ...": the answer should give a number
     year_from: Optional[int] = None  # films_of/count/shared: release year range, inclusive
     year_to: Optional[int] = None
+    ordinal: Optional[int] = None    # fact: "the first/third/last X film" -> 1 / 3 / -1 (mention is then X)
+    raw_mention: Optional[str] = None  # fact with an ordinal: the mention with the ordinal kept ("Last Samurai")
 
     def to_dict(self) -> dict:
         return {
@@ -54,6 +56,7 @@ class Intent:
             "count": self.count,
             "year_from": self.year_from,
             "year_to": self.year_to,
+            "ordinal": self.ordinal,
         }
 
 
@@ -843,6 +846,8 @@ class _Seg:
     year_from: Optional[int] = None
     year_to: Optional[int] = None
     others: List[tuple] = field(default_factory=list)  # shared: (relation, mention, quoted) of the other names
+    ordinal: Optional[int] = None
+    raw_mention: Optional[str] = None
 
 
 # --- counts, roles, shared films -------------------------------------------------------
@@ -950,7 +955,78 @@ def _films_of_with_others(seg: str):
     return (rel, mention, genre, weak), []
 
 
+# --- ordinals: "the first Harry Potter film", "the third film in the X series", "X's last movie" ------
+_ORD_VALUE = {"first": 1, "1st": 1, "very first": 1, "earliest": 1, "original": 1, "second": 2, "2nd": 2,
+              "third": 3, "3rd": 3, "fourth": 4, "4th": 4, "fifth": 5, "5th": 5, "sixth": 6, "6th": 6,
+              "seventh": 7, "7th": 7, "eighth": 8, "8th": 8, "ninth": 9, "9th": 9, "tenth": 10, "10th": 10,
+              "last": -1, "latest": -1, "final": -1, "newest": -1, "most recent": -1}
+_ORD_ALT = r"(?:very\s+first|most\s+recent|first|1st|earliest|original|second|2nd|third|3rd|fourth|4th|fifth|5th|" \
+           r"sixth|6th|seventh|7th|eighth|8th|ninth|9th|tenth|10th|last|latest|final|newest)"
+_ORD_UNIT = r"(?:film|movie|one|part|installment|instalment|entry|chapter|episode)s?"
+# "Harry Potter's first film": drop "'s first film"
+_ORD_POSS = re.compile(r"['’]s?\s+(?P<o>" + _ORD_ALT + r")\s+" + _ORD_UNIT + r"\b", re.I)
+# "the third film in the Harry Potter series": drop "the third film in the"
+_ORD_PART = re.compile(r"\b(?:the\s+)?(?P<o>" + _ORD_ALT + r")\s+" + _ORD_UNIT + r"\s+(?:of|in|from)\s+(?:the\s+)?", re.I)
+# "the first Harry Potter film", "the last Matrix": drop "the first"; never before a word that makes it
+# something else ("the first time", "the first director")
+_ORD_LEAD = re.compile(r"\b(?:the\s+)?(?P<o>" + _ORD_ALT + r")\s+(?!(?:time|times|thing|things|of|in|to|and|or|day|days|"
+                       r"year|years|place|week|month|director|actor|actress|person|people|woman|man|film|movie|"
+                       r"films|movies|one|ones)\b)(?=[\w\"'])", re.I)
+
+
+def _take_ordinal(seg: str):
+    """(segment without the ordinal phrase, ordinal value) or (segment, None).
+    A capitalised ordinal word is a title ("The Last Samurai", "First Blood"), never an ordinal."""
+    for rx in (_ORD_POSS, _ORD_PART, _ORD_LEAD):
+        for m in rx.finditer(seg):
+            word = m.group("o")
+            if word[:1].isupper():
+                continue
+            value = _ORD_VALUE[re.sub(r"\s+", " ", word.lower())]
+            return _trim(seg[:m.start()] + (" " if rx is not _ORD_POSS else "") + seg[m.end():]), value
+    return seg, None
+
+
+def ordinal_span(text: str):
+    """(start, end, series text, ordinal value) of "the first Harry Potter film" / "the third film in the X
+    series" in a question, or None. The span covers the whole phrase so it can be replaced by a title."""
+    for rx in (_ORD_PART, _ORD_LEAD):
+        for m in rx.finditer(text):
+            word = m.group("o")
+            if word[:1].isupper():
+                continue
+            stop = _ORD_STOP.search(text, m.end())
+            end = stop.start() if stop else len(text)
+            series = _trim(text[m.end():end])
+            if not series:
+                continue
+            tail = _ORD_TAIL.match(text, end)
+            if tail:
+                end = tail.end()
+            return m.start(), end, series, _ORD_VALUE[re.sub(r"\s+", " ", word.lower())]
+    return None
+
+
+_ORD_STOP = re.compile(r"\s+(?:film|movie|installment|instalment|entry|part|chapter|episode|series|franchise|saga|"
+                       r"trilogy|collection|universe|released|come|came|about|with|and|or|was|is|by|from)\b|"
+                       r"\s*[?,.!;]|['’]s\b", re.I)
+_ORD_TAIL = re.compile(r"(?:\s+(?:film|movie)?\s*(?:series|franchise|saga|trilogy|collection|universe))?"
+                       r"(?:\s+(?:film|movie|installment|instalment|entry|part|chapter|episode)s?\b)?", re.I)
+
+
 def _parse_segment(seg: str, quotes: List[str]) -> Optional[_Seg]:
+    stripped, ordinal = _take_ordinal(seg)
+    if ordinal is not None:
+        s = _parse_segment_core(stripped, quotes)
+        if s is not None and s.kind == "fact" and s.mention:
+            raw = _parse_segment_core(seg, quotes)
+            s.ordinal = ordinal
+            s.raw_mention = raw.mention if raw is not None and raw.kind == "fact" else None
+            return s
+    return _parse_segment_core(seg, quotes)
+
+
+def _parse_segment_core(seg: str, quotes: List[str]) -> Optional[_Seg]:
     seg = _lead_strip(_trim(seg))
     while True:
         t = _trim(_CHAT_TRAIL.sub("", seg))
@@ -1029,18 +1105,21 @@ def parse_intent(question: str) -> Intent:
         if nxt is not None:
             top.mention, top.quoted, top.inherits = nxt.mention, nxt.quoted, False
             top.year = top.year if top.year is not None else nxt.year
+            top.ordinal, top.raw_mention = nxt.ordinal, nxt.raw_mention
     intents = []
     for i, s in enumerate(segs):
         mention, quoted, year = s.mention, s.quoted, s.year
+        ordinal, raw_mention = s.ordinal, s.raw_mention
         if i > 0 and mention and not quoted and _THE_PART.match(mention):
             mention, s.inherits = None, True   # "... and who composed the music?": the first part's film
         if i > 0 and mention is None and s.inherits:
             mention, quoted = top.mention, top.quoted
             year = year if year is not None else top.year
+            ordinal, raw_mention = top.ordinal, top.raw_mention
         it = Intent(
             kind=s.kind, relation=s.relation, mention=mention, quoted=quoted, year=year, genre=s.genre,
             confidence=_confidence(s.relation, mention, s.weak), count=s.count,
-            year_from=s.year_from, year_to=s.year_to)
+            year_from=s.year_from, year_to=s.year_to, ordinal=ordinal, raw_mention=raw_mention)
         # shared: the other names are films_of parts with the same filters
         it.parts = [Intent(kind="films_of", relation=r2, mention=m2, quoted=q2, genre=s.genre,
                            confidence=_confidence(r2, m2, False), year_from=s.year_from, year_to=s.year_to)
