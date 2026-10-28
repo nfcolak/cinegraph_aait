@@ -48,7 +48,7 @@
   border: 1px solid var(--card-rim);
   border-radius: var(--r-card);
   background: var(--card);
-  box-shadow: var(--shadow);
+  box-shadow: var(--card-hi), var(--shadow);
   -webkit-backdrop-filter: blur(28px) saturate(160%);
   backdrop-filter: blur(28px) saturate(160%);
 }

@@ -20,20 +20,24 @@
 /* ---------------------------------------------------------------- empty state */
 
 .hero {
-  margin-bottom: 28px;
+  margin-bottom: clamp(28px, 4vh, 40px);
   text-align: center;
+  animation: rise 520ms var(--ease-out) both;
 }
 
 .hero-title {
   font-size: var(--fs-page);
   font-weight: 500;
-  line-height: 1.2;
+  line-height: 1.08;
+  letter-spacing: -0.035em;
 }
 
 .hero-sub {
   max-width: 52ch;
-  margin: 10px auto 0;
+  margin: 14px auto 0;
   color: var(--muted);
+  font-size: clamp(15px, 1vw, 17px);
+  letter-spacing: -0.005em;
 }
 
 /* ---------------------------------------------------------------- input card */
@@ -367,115 +371,88 @@
 
 .ask.is-empty .composer {
   width: 100%;
-  max-width: clamp(640px, 46vw, 960px);
+  max-width: var(--entry);
   margin: 0 auto;
+  animation: rise 520ms var(--ease-out) both;
+  animation-delay: 60ms;
 }
-
-.wall {
-  display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
-  gap: clamp(8px, 1vw, 16px);
-  width: 100%;
-  margin-top: clamp(36px, 6vh, 72px);
-  list-style: none;
-}
-
-.wall-empty {
-  aspect-ratio: 12 / 1.5;
-}
-
-.wall a {
-  display: block;
-  overflow: hidden;
-  aspect-ratio: 2 / 3;
-  border-radius: var(--r-poster);
-  background: var(--faint);
-  transition: transform var(--fade) var(--ease);
-}
-
-.wall a:hover {
-  transform: translateY(-2px);
-}
-
-.wall img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-@media (max-width: 1100px) {
-  .wall {
-    grid-template-columns: repeat(8, minmax(0, 1fr));
-  }
-
-  .wall li:nth-child(n + 9) {
-    display: none;
-  }
-}
-
-@media (max-width: 640px) {
-  .wall {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
-  .wall li:nth-child(n + 5) {
-    display: none;
-  }
-}
-
 
 /* ---------------------------------------------------------------- what you can ask (empty state) */
 
 .guide {
   width: 100%;
-  max-width: clamp(640px, 72vw, 1240px);
-  margin: clamp(32px, 5vh, 56px) auto 0;
+  max-width: var(--entry);
+  margin: clamp(44px, 7vh, 88px) auto 0;
+  animation: rise 520ms var(--ease-out) both;
+  animation-delay: 120ms;
 }
 
 .guide-title {
-  margin-bottom: 18px;
-  font-size: 17px;
-  font-weight: 600;
-  text-align: center;
-}
-
-.guide-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
-  gap: 28px clamp(20px, 2.4vw, 40px);
-}
-
-.guide-kind h3 {
-  font-size: var(--fs-base);
-  font-weight: 600;
-}
-
-.guide-kind p {
-  margin-top: 2px;
+  margin-bottom: 14px;
   color: var(--muted);
   font-size: var(--fs-small);
+  font-weight: 500;
+  letter-spacing: 0.01em;
 }
 
-.guide-kind ul {
+/* an index: one line per kind of question, hairlines between */
+.guide-list {
+  border-top: 1px solid var(--hair);
+}
+
+.guide-row {
+  display: grid;
+  grid-template-columns: 172px 1fr;
+  align-items: baseline;
+  gap: 4px 28px;
+  padding: 15px 0;
+  border-bottom: 1px solid var(--hair);
+}
+
+.guide-row dt {
+  color: var(--muted);
+  font-size: var(--fs-small);
+  font-weight: 500;
+}
+
+.guide-row dd {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin: 8px 0 0 -8px;
-  list-style: none;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  margin-left: -6px;
 }
 
 .guide-q {
-  padding: 5px 8px;
-  border-radius: var(--r-ctl);
-  color: var(--ink);
+  position: relative;
+  padding: 2px 6px;
+  border-radius: 6px;
+  color: color-mix(in srgb, var(--ink) 84%, transparent);
   font-size: var(--fs-base);
-  line-height: 1.4;
+  line-height: 1.5;
+  letter-spacing: -0.005em;
   text-align: left;
-  transition: background var(--fade) var(--ease);
+  transition: color var(--fade) var(--ease);
+}
+
+.guide-q::after {
+  content: "";
+  position: absolute;
+  right: 6px;
+  bottom: 0;
+  left: 6px;
+  height: 1px;
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 260ms var(--ease-out);
 }
 
 .guide-q:hover:not(:disabled) {
-  background: var(--faint);
+  color: var(--ink);
+}
+
+.guide-q:hover:not(:disabled)::after {
+  transform: scaleX(1);
 }
 
 .guide-q:disabled {
@@ -485,4 +462,31 @@
 .guide-q:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--ink) 55%, transparent);
   outline-offset: 0;
+}
+
+@media (max-width: 640px) {
+  .guide-row {
+    grid-template-columns: 1fr;
+    padding: 13px 0;
+  }
+
+  .guide-row dd {
+    flex-direction: column;
+    gap: 2px;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .guide,
+  .hero,
+  .ask.is-empty .composer {
+    animation: none;
+  }
 }

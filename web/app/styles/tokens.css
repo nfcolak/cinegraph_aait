@@ -15,7 +15,9 @@ html[data-theme="light"] {
   --hair: rgba(23, 22, 26, 0.09);
   --card: rgba(255, 255, 255, 0.72);
   --card-rim: rgba(255, 255, 255, 0.9);
-  --shadow: 0 30px 80px -32px rgba(30, 25, 20, 0.25);
+  --shadow: 0 1px 2px rgba(30, 25, 20, 0.04), 0 30px 80px -32px rgba(30, 25, 20, 0.25);
+  --card-hi: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --grain: 0.035;
   --btn: #17161a;
   --btn-ink: #ffffff;
   --danger: #b8323f;
@@ -25,16 +27,18 @@ html[data-theme="light"] {
 
 html[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #0c0c0e;
+  --bg: #0a0a0c;
   --ink: #ededf0;
   --muted: #9a98a2;
   --faint: rgba(255, 255, 255, 0.06);
   --hair: rgba(255, 255, 255, 0.08);
-  --card: rgba(24, 24, 28, 0.66);
-  --card-rim: rgba(255, 255, 255, 0.08);
-  --shadow: 0 30px 80px -30px rgba(0, 0, 0, 0.7);
+  --card: rgba(22, 22, 26, 0.62);
+  --card-rim: rgba(255, 255, 255, 0.07);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 40px 100px -36px rgba(0, 0, 0, 0.8);
+  --card-hi: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --grain: 0.05;
   --btn: #ededf0;
-  --btn-ink: #0c0c0e;
+  --btn-ink: #0a0a0c;
   --danger: #ff8190;
   --guess: #a594ff;
   --field: 0.14;
@@ -44,7 +48,7 @@ html[data-theme="dark"] {
   /* type: Geist for reading, Geist Mono only for example chips, the SPARQL query, the log and QIDs */
   --sans: var(--font-geist-sans), "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --mono: var(--font-geist-mono), "Geist Mono", "SF Mono", Menlo, monospace;
-  --fs-page: clamp(30px, 3vw, 56px); /* page sentence, 500, line-height 1.2 */
+  --fs-page: clamp(34px, 3.6vw, 66px); /* page sentence, 500, tight tracking */
   --fs-answer: clamp(19px, 1.3vw, 23px); /* line-height 1.55 */
   --fs-base: clamp(15px, 0.95vw, 16.5px); /* body, line-height 1.6 */
   --fs-small: 13px;
@@ -59,18 +63,20 @@ html[data-theme="dark"] {
   /* layout */
   --column: 1560px; /* page content */
   --read: clamp(720px, 60vw, 1160px); /* ask thread */
+  --entry: clamp(680px, 66vw, 1080px); /* empty ask page: input card and question index */
   --header: 76px;
   --pad: clamp(16px, 3.2vw, 56px);
 
   /* motion: only fades and the backdrop crossfade */
   --ease: ease;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --fade: 160ms;
   --crossfade: 600ms;
 }
 
 @media (max-width: 640px) {
   :root {
-    --fs-page: 24px;
+    --fs-page: 30px;
     --r-card: 20px;
     --pad: 14px;
   }

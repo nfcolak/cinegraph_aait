@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type RefObject } from "react";
-import { ask, ApiError, filmHref, formatLatency, showcase, type FilmRow, type Reply } from "@/lib/api";
+import { ask, ApiError, formatLatency, type Reply } from "@/lib/api";
 import { setBackdrop } from "@/lib/backdrop";
 import { QUESTION_KINDS } from "@/lib/examples";
 import { loadThread, saveThread } from "@/lib/thread";
@@ -28,59 +27,27 @@ function Chevron() {
   );
 }
 
-/* eslint-disable @next/next/no-img-element */
-/** A wide row of posters under the empty input card, so the first screen shows films from the graph. */
-function PosterWall({ ready }: { ready: boolean }) {
-  const [films, setFilms] = useState<FilmRow[]>([]);
-  useEffect(() => {
-    if (!ready || films.length) return;
-    const ctrl = new AbortController();
-    showcase(ctrl.signal)
-      .then((all) => setFilms(all.filter((f) => f.image).slice(0, 12)))
-      .catch(() => {
-        /* decoration only */
-      });
-    return () => ctrl.abort();
-  }, [ready, films.length]);
-  if (!films.length) return <div className="wall wall-empty" aria-hidden="true" />;
-  return (
-    <ul className="wall" aria-label="Films in the graph">
-      {films.map((f) => (
-        <li key={f.qid}>
-          <Link href={filmHref(f.qid)} title={f.year ? `${f.label} (${f.year})` : f.label}>
-            <img src={f.image!} alt={f.label} loading="lazy" />
-          </Link>
-        </li>
-      ))}
-    </ul>
-  );
-}
-/* eslint-enable @next/next/no-img-element */
-
-/** The kinds of question the graph answers, each with a few questions that are asked when clicked. */
+/** The kinds of question the graph answers: one line each, the kind on the left, its questions inline. */
 function AskGuide({ onPick, busy }: { onPick: (q: string) => void; busy: boolean }) {
   return (
     <section className="guide" aria-labelledby="guide-title">
       <h2 id="guide-title" className="guide-title">
         What you can ask
       </h2>
-      <div className="guide-grid">
+      <dl className="guide-list">
         {QUESTION_KINDS.map((kind) => (
-          <div key={kind.title} className="guide-kind">
-            <h3>{kind.title}</h3>
-            <p>{kind.blurb}</p>
-            <ul>
+          <div key={kind.title} className="guide-row">
+            <dt title={kind.blurb}>{kind.title}</dt>
+            <dd>
               {kind.questions.map((q) => (
-                <li key={q}>
-                  <button type="button" className="guide-q" onClick={() => onPick(q)} disabled={busy}>
-                    {q}
-                  </button>
-                </li>
+                <button key={q} type="button" className="guide-q" onClick={() => onPick(q)} disabled={busy}>
+                  {q}
+                </button>
               ))}
-            </ul>
+            </dd>
           </div>
         ))}
-      </div>
+      </dl>
     </section>
   );
 }
@@ -335,7 +302,6 @@ export function Chat() {
 
       <Composer inputRef={inputRef} draft={draft} setDraft={setDraft} onSend={() => send(draft)} busy={busy} compact={!empty} status={status} />
       {empty && <AskGuide onPick={send} busy={busy} />}
-      {empty && <PosterWall ready={server.phase === "ready"} />}
     </main>
   );
 }

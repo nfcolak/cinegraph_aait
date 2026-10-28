@@ -5,21 +5,18 @@ export interface QuestionKind {
 }
 
 // Shown on the empty ask page. Every question here was asked on the running API (POST /api/chat) on
-// 2026-10-28 and came back on the right route with a correct answer.
+// 2026-10-28 and came back on the right route with a correct answer. Kept short so each kind fits on one line
+// of the index on a laptop screen.
 export const QUESTION_KINDS: QuestionKind[] = [
   {
     title: "Facts about a film",
     blurb: "Director, cast, composer, release date, genre.",
-    questions: ["Who directed Inception?", "When was The Godfather released?", "Who composed the music for Jaws?"],
+    questions: ["Who directed Inception?", "When was The Godfather released?", "Who scored Jaws?"],
   },
   {
     title: "People and their films",
     blurb: "Filmographies and the roles people played.",
-    questions: [
-      "Which movies did Christopher Nolan direct?",
-      "In which movies did Daniel Radcliffe play?",
-      "Who played Jack Sparrow?",
-    ],
+    questions: ["What did Christopher Nolan direct?", "Which films star Daniel Radcliffe?", "Who played Jack Sparrow?"],
   },
   {
     title: "Series",
@@ -37,7 +34,7 @@ export const QUESTION_KINDS: QuestionKind[] = [
     questions: ["Show me the poster of Jaws", "What does Keanu Reeves look like?"],
   },
   {
-    title: "When the graph has no answer",
+    title: "When the graph has no fact",
     blurb: "A guess from graph embeddings, marked as a guess.",
     questions: ["Who is the composer of Once Upon a Time in Hollywood?"],
   },
